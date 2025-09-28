@@ -2,8 +2,24 @@
 #define CONFIG_H
 
 // Hardware Configuration for Waveshare RP2040 Zero + W5500 Lite
-#define W5500_CS_PIN    17    // Chip Select pin for W5500
-#define W5500_RST_PIN   20    // Reset pin for W5500 (optional, set to -1 if not used)
+// Available GPIO pins: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,26,27,28,29
+// Reserved pins:
+// - GPIO0: Serial1 TX (P1 port communication)
+// - GPIO1: Serial1 RX (P1 port communication)
+// - GPIO2: SPI0 SCK (for W5500)
+// - GPIO3: SPI0 MOSI (for W5500)  
+// - GPIO4: SPI0 MISO (for W5500)
+// - GPIO5: W5500 Chip Select
+// - GPIO6: W5500 Reset
+// - GPIO7: W5500 Interrupt (optional)
+// - GPIO16: WS2812 NeoPixel LED (onboard)
+#define W5500_CS_PIN    5     // Chip Select pin for W5500 (can use GPIO5 as it's SPI0_SS default)
+#define W5500_RST_PIN   6     // Reset pin for W5500
+#define W5500_INT_PIN   7     // Interrupt pin for W5500 (optional but recommended for better performance)
+							  // INT pin improves efficiency by triggering network event processing
+							  // instead of constant polling. Set to -1 to disable.
+							  
+#define W5500_MAC_ADDRESS {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED} // Default MAC address (change if needed)
 
 // P1 Serial Configuration
 // Note: Serial1 uses predefined pins on RP2040 (typically GPIO0=TX, GPIO1=RX)
@@ -24,7 +40,12 @@
 
 // Debug Configuration
 #define DEBUG_SERIAL    true
-#define STATUS_LED_PIN  25    // GPIO25 - Onboard LED for Waveshare RP2040 Zero
+#define STATUS_LED_PIN  PIN_NEOPIXEL    // GPIO16 - WS2812 NeoPixel LED (onboard)
+
+// SPI Configuration for W5500
+// Using SPI0 (default): MISO=4, MOSI=3, SCK=2, SS=5 (from pins_arduino.h)
+
+// Still available pins for future expansion: 8,9,10,11,12,13,14,15,26,27,28,29
 
 // P1 Protocol Configuration
 #define P1_START_CHAR   '/'

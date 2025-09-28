@@ -1,10 +1,14 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <Ethernet.h>
+#include <Adafruit_NeoPixel.h>
 #include "config.h"
 
+// NeoPixel LED setup
+Adafruit_NeoPixel statusLed(1, STATUS_LED_PIN, NEO_GRB + NEO_KHZ800);
+
 // Network configuration - using DHCP
-byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
+byte mac[] = W5500_MAC_ADDRESS;
 
 // Server and client management
 EthernetServer server(SERVER_PORT);
@@ -19,6 +23,16 @@ bool p1MessageComplete = false;
 // Status LED
 unsigned long lastLedBlink = 0;
 bool ledState = false;
+unsigned long lastP1DataReceived = 0;
+bool p1DataIndicator = false;
+
+// W5500 Interrupt handling
+volatile bool w5500InterruptFlag = false;
+
+// W5500 interrupt service routine
+void w5500InterruptHandler() {
+	w5500InterruptFlag = true;
+}
 
 // Statistics
 unsigned long totalP1Messages = 0;
@@ -143,6 +157,11 @@ void readP1Data() {
 				sendToAllClients(p1Buffer);
 				totalP1Messages++;
 				totalBytesReceived += p1Buffer.length();
+				
+				// Mark P1 data received for LED indication
+				lastP1DataReceived = millis();
+				p1DataIndicator = true;
+				
 				Serial.print("P1 message #");
 				Serial.print(totalP1Messages);
 				Serial.print(" sent to clients (");
@@ -240,9 +259,10 @@ void setup() {
 		; // Wait for serial port to connect, but timeout after 3 seconds
 	}
 	
-	// Initialize status LED
-	pinMode(STATUS_LED_PIN, OUTPUT);
-	digitalWrite(STATUS_LED_PIN, HIGH);
+	// Initialize status LED (WS2812 NeoPixel)
+	statusLed.begin();
+	statusLed.setPixelColor(0, statusLed.Color(255, 0, 0)); // Red during startup
+	statusLed.show();
 	
 	Serial.println("P1 Serial-to-Network Bridge Starting...");
 	
@@ -261,6 +281,14 @@ void setup() {
 		delay(100);
 	}
 	
+	// Initialize W5500 interrupt pin
+	if (W5500_INT_PIN >= 0) {
+		pinMode(W5500_INT_PIN, INPUT_PULLUP);
+		attachInterrupt(digitalPinToInterrupt(W5500_INT_PIN), w5500InterruptHandler, FALLING);
+		Serial.print("W5500 interrupt enabled on GPIO ");
+		Serial.println(W5500_INT_PIN);
+	}
+	
 	// Initialize SPI for W5500
 	SPI.begin();
 	
@@ -273,9 +301,13 @@ void setup() {
 	// Configure DHCP
 	if (Ethernet.begin(mac) == 0) {
 		Serial.println("Failed to configure Ethernet using DHCP");
-		// Indicate failure with rapid LED blinking
+		// Indicate failure with rapid LED blinking (red)
 		while (true) {
-			digitalWrite(STATUS_LED_PIN, !digitalRead(STATUS_LED_PIN));
+			statusLed.setPixelColor(0, statusLed.Color(255, 0, 0)); // Red
+			statusLed.show();
+			delay(100);
+			statusLed.setPixelColor(0, statusLed.Color(0, 0, 0)); // Off
+			statusLed.show();
 			delay(100);
 		}
 	}
@@ -284,7 +316,11 @@ void setup() {
 	if (Ethernet.hardwareStatus() == EthernetNoHardware) {
 		Serial.println("Ethernet shield was not found. Check wiring.");
 		while (true) {
-			digitalWrite(STATUS_LED_PIN, !digitalRead(STATUS_LED_PIN));
+			statusLed.setPixelColor(0, statusLed.Color(255, 255, 0)); // Yellow
+			statusLed.show();
+			delay(200);
+			statusLed.setPixelColor(0, statusLed.Color(0, 0, 0)); // Off
+			statusLed.show();
 			delay(200);
 		}
 	}
@@ -321,31 +357,64 @@ void setup() {
 	Serial.println("P1 Serial initialized at 115200 baud");
 	Serial.println("Bridge ready!");
 	
-	digitalWrite(STATUS_LED_PIN, LOW); // Turn off LED to indicate ready
+	statusLed.setPixelColor(0, statusLed.Color(0, 255, 0)); // Green to indicate ready
+	statusLed.show();
 }
 
 void loop() {
 	// Maintain Ethernet connection
 	Ethernet.maintain();
 	
-	// Blink status LED to show activity
-	if (millis() - lastLedBlink > 1000) {
-		ledState = !ledState;
-		digitalWrite(STATUS_LED_PIN, ledState);
-		lastLedBlink = millis();
+	// Handle status LED blinking
+	// Fast purple blink when P1 data received (300ms), then back to normal pattern
+	if (p1DataIndicator && (millis() - lastP1DataReceived < 300)) {
+		// Fast blink purple for P1 data indication
+		if (millis() - lastLedBlink > 100) {
+			ledState = !ledState;
+			if (ledState) {
+				statusLed.setPixelColor(0, statusLed.Color(128, 0, 128)); // Purple
+			} else {
+				statusLed.setPixelColor(0, statusLed.Color(0, 0, 0)); // Off
+			}
+			statusLed.show();
+			lastLedBlink = millis();
+		}
+	} else {
+		// Reset P1 data indicator after the blink period
+		if (p1DataIndicator) {
+			p1DataIndicator = false;
+		}
+		
+		// Normal slow blink to show system activity (blue/green alternating)
+		if (millis() - lastLedBlink > 1000) {
+			ledState = !ledState;
+			if (ledState) {
+				statusLed.setPixelColor(0, statusLed.Color(0, 0, 255)); // Blue
+			} else {
+				statusLed.setPixelColor(0, statusLed.Color(0, 255, 0)); // Green
+			}
+			statusLed.show();
+			lastLedBlink = millis();
+		}
 	}
 	
-	// Handle new client connections
-	handleNewConnections();
+	// Handle network events (optimized with interrupt)
+	if (w5500InterruptFlag || (millis() % 100 == 0)) {
+		// Process network events when interrupt occurs or every 100ms as fallback
+		w5500InterruptFlag = false; // Clear the flag
+		
+		// Handle new client connections
+		handleNewConnections();
+		
+		// Handle client communication
+		handleClientCommunication();
+		
+		// Clean up disconnected clients
+		cleanupClients();
+	}
 	
-	// Read P1 data from serial
+	// Always read P1 data from serial (high priority)
 	readP1Data();
-	
-	// Handle client communication
-	handleClientCommunication();
-	
-	// Clean up disconnected clients
-	cleanupClients();
 	
 	// Small delay to prevent overwhelming the system
 	delay(1);
