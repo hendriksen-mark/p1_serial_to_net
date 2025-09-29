@@ -2,6 +2,8 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <Adafruit_NeoPixel.h>
+#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
+#include <DebugLog.h>
 #include "config.h"
 
 // NeoPixel LED setup
@@ -42,7 +44,7 @@ unsigned long totalBytesSent = 0;
 void handleNewConnections() {
 	EthernetClient newClient = server.accept();
 	if (newClient) {
-		Serial.println("New client attempting to connect");
+		LOG_DEBUG("New client attempting to connect");
 		
 		// Find available slot
 		int availableSlot = -1;
@@ -58,12 +60,10 @@ void handleNewConnections() {
 			clients[availableSlot] = newClient;
 			clientConnected[availableSlot] = true;
 			clientLastActivity[availableSlot] = millis();
-			
-			Serial.print("Client connected on slot ");
-			Serial.print(availableSlot);
-			Serial.print(" from ");
-			Serial.println(newClient.remoteIP());
-			
+
+			LOG_DEBUG("Client connected on slot:", availableSlot);
+			LOG_DEBUG("Client IP:", newClient.remoteIP());
+
 			// Send telnet negotiation if needed
 			// IAC WILL ECHO, IAC WILL SUPPRESS_GO_AHEAD
 			clients[availableSlot].write(0xFF); // IAC
@@ -92,17 +92,15 @@ void handleNewConnections() {
 				clients[oldestSlot].println("Connection terminated: New client connecting");
 				clients[oldestSlot].stop();
 				clientConnected[oldestSlot] = false;
-				Serial.print("Kicked client from slot ");
-				Serial.println(oldestSlot);
+				LOG_DEBUG("Kicked client from slot:", oldestSlot);
 			}
 			
 			// Accept new client in the freed slot
 			clients[oldestSlot] = newClient;
 			clientConnected[oldestSlot] = true;
 			clientLastActivity[oldestSlot] = millis();
-			
-			Serial.print("New client connected on slot ");
-			Serial.println(oldestSlot);
+
+			LOG_INFO("New client connected on slot:", oldestSlot);
 		}
 	}
 }
@@ -161,12 +159,8 @@ void readP1Data() {
 				// Mark P1 data received for LED indication
 				lastP1DataReceived = millis();
 				p1DataIndicator = true;
-				
-				Serial.print("P1 message #");
-				Serial.print(totalP1Messages);
-				Serial.print(" sent to clients (");
-				Serial.print(p1Buffer.length());
-				Serial.println(" bytes)");
+
+				LOG_DEBUG("P1 message #", totalP1Messages, " sent to clients (", p1Buffer.length(), " bytes)");
 				p1Buffer = "";
 				p1MessageComplete = false;
 			}
@@ -176,7 +170,7 @@ void readP1Data() {
 			
 			// Prevent buffer overflow
 			if (p1Buffer.length() > P1_BUFFER_SIZE) {
-				Serial.println("P1 buffer overflow, resetting");
+				LOG_WARN("P1 buffer overflow, resetting");
 				p1Buffer = "";
 				p1MessageComplete = false;
 			}
@@ -200,8 +194,7 @@ void handleClientCommunication() {
 			
 			// Check for client timeout
 			if (millis() - clientLastActivity[i] > CLIENT_TIMEOUT) {
-				Serial.print("Client timeout on slot ");
-				Serial.println(i);
+				LOG_DEBUG("Client timeout on slot:", i);
 				clients[i].stop();
 				clientConnected[i] = false;
 			}
@@ -212,8 +205,7 @@ void handleClientCommunication() {
 void cleanupClients() {
 	for (int i = 0; i < MAX_CONNECTIONS; i++) {
 		if (clientConnected[i] && !clients[i].connected()) {
-			Serial.print("Client disconnected from slot ");
-			Serial.println(i);
+			LOG_DEBUG("Client disconnected from slot:", i);
 			clientConnected[i] = false;
 			clients[i].stop();
 		}
@@ -222,56 +214,50 @@ void cleanupClients() {
 
 // Optional: Add a function to get connection status
 void printStatus() {
-	Serial.println("=== Bridge Status ===");
-	Serial.print("IP Address: ");
-	Serial.println(Ethernet.localIP());
-	Serial.print("Server Port: ");
-	Serial.println(SERVER_PORT);
-	Serial.print("Connected Clients: ");
+	LOG_INFO("=== Bridge Status ===");
+	LOG_INFO("IP Address:", Ethernet.localIP());
+	LOG_INFO("Server Port:", SERVER_PORT);
+	LOG_INFO("Connected Clients:");
 	int connectedCount = 0;
 	for (int i = 0; i < MAX_CONNECTIONS; i++) {
 		if (clientConnected[i]) {
 			connectedCount++;
-			Serial.print(" [");
-			Serial.print(i);
-			Serial.print(": ");
-			Serial.print(clients[i].remoteIP());
-			Serial.print("]");
+			LOG_INFO(" [", i, ": ", clients[i].remoteIP(), "]");
 		}
 	}
-	Serial.println();
-	Serial.print("P1 Messages: ");
-	Serial.println(totalP1Messages);
-	Serial.print("Bytes Received: ");
-	Serial.println(totalBytesReceived);
-	Serial.print("Bytes Sent: ");
-	Serial.println(totalBytesSent);
-	Serial.print("Uptime: ");
-	Serial.print(millis() / 1000);
-	Serial.println(" seconds");
-	Serial.println("===================");
+	LOG_INFO("P1 Messages:", totalP1Messages);
+	LOG_INFO("Bytes Received:", totalBytesReceived);
+	LOG_INFO("Bytes Sent:", totalBytesSent);
+	LOG_INFO("Uptime:", millis() / 1000);
+	LOG_INFO(" seconds");
+	LOG_INFO("===================");
 }
 
 void setup() {
 	// Initialize serial for debugging
 	Serial.begin(115200);
+	if (DEBUG_SERIAL) {
+		LOG_SET_LEVEL(DebugLogLevel::LVL_TRACE);
+	} else {
+		LOG_SET_LEVEL(DebugLogLevel::LVL_INFO);
+	}
 	while (!Serial && millis() < 3000) {
 		; // Wait for serial port to connect, but timeout after 3 seconds
 	}
-	
+
 	// Initialize status LED (WS2812 NeoPixel)
 	statusLed.begin();
 	statusLed.setPixelColor(0, statusLed.Color(255, 0, 0)); // Red during startup
 	statusLed.show();
-	
-	Serial.println("P1 Serial-to-Network Bridge Starting...");
-	
+
+	LOG_INFO("P1 Serial-to-Network Bridge Starting...");
+
 	// Initialize client arrays
 	for (int i = 0; i < MAX_CONNECTIONS; i++) {
 		clientConnected[i] = false;
 		clientLastActivity[i] = 0;
 	}
-	
+
 	// Initialize W5500 reset pin
 	if (W5500_RST_PIN >= 0) {
 		pinMode(W5500_RST_PIN, OUTPUT);
@@ -280,13 +266,12 @@ void setup() {
 		digitalWrite(W5500_RST_PIN, HIGH);
 		delay(100);
 	}
-	
+
 	// Initialize W5500 interrupt pin
 	if (W5500_INT_PIN >= 0) {
 		pinMode(W5500_INT_PIN, INPUT_PULLUP);
 		attachInterrupt(digitalPinToInterrupt(W5500_INT_PIN), w5500InterruptHandler, FALLING);
-		Serial.print("W5500 interrupt enabled on GPIO ");
-		Serial.println(W5500_INT_PIN);
+		LOG_DEBUG("W5500 interrupt enabled on GPIO:", W5500_INT_PIN);
 	}
 	
 	// Initialize SPI for W5500
@@ -295,12 +280,12 @@ void setup() {
 	// Initialize Ethernet with W5500
 	Ethernet.init(W5500_CS_PIN);
 	
-	Serial.println("Starting Ethernet connection...");
-	Serial.println("Requesting IP address from DHCP...");
-	
+	LOG_DEBUG("Starting Ethernet connection...");
+	LOG_DEBUG("Requesting IP address from DHCP...");
+
 	// Configure DHCP
 	if (Ethernet.begin(mac) == 0) {
-		Serial.println("Failed to configure Ethernet using DHCP");
+		LOG_ERROR("Failed to configure Ethernet using DHCP");
 		// Indicate failure with rapid LED blinking (red)
 		while (true) {
 			statusLed.setPixelColor(0, statusLed.Color(255, 0, 0)); // Red
@@ -314,7 +299,7 @@ void setup() {
 	
 	// Check if Ethernet hardware is found
 	if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-		Serial.println("Ethernet shield was not found. Check wiring.");
+		LOG_ERROR("Ethernet shield was not found. Check wiring.");
 		while (true) {
 			statusLed.setPixelColor(0, statusLed.Color(255, 255, 0)); // Yellow
 			statusLed.show();
@@ -327,36 +312,30 @@ void setup() {
 	
 	// Check if cable is connected
 	if (Ethernet.linkStatus() == LinkOFF) {
-		Serial.println("Ethernet cable is not connected.");
+		LOG_ERROR("Ethernet cable is not connected.");
 	}
-	
-	Serial.print("DHCP IP assigned: ");
-	Serial.println(Ethernet.localIP());
-	Serial.print("Gateway: ");
-	Serial.println(Ethernet.gatewayIP());
-	Serial.print("Subnet: ");
-	Serial.println(Ethernet.subnetMask());
-	Serial.print("DNS: ");
-	Serial.println(Ethernet.dnsServerIP());
+
+	LOG_INFO("DHCP IP assigned:", Ethernet.localIP());
+	LOG_INFO("Gateway:", Ethernet.gatewayIP());
+	LOG_INFO("Subnet:", Ethernet.subnetMask());
+	LOG_INFO("DNS:", Ethernet.dnsServerIP());
 	
 	// Start the server
 	server.begin();
-	Serial.print("Server listening on port ");
-	Serial.println(SERVER_PORT);
-	Serial.print("MAC Address: ");
-	for (int i = 0; i < 6; i++) {
-		if (i > 0) Serial.print(":");
-		if (mac[i] < 16) Serial.print("0");
-		Serial.print(mac[i], HEX);
-	}
-	Serial.println();
+	LOG_INFO("Server listening on port:", SERVER_PORT);
+	
+	// Format MAC address for logging
+	char macStr[18];
+	sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", 
+			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+	LOG_INFO("MAC Address:", macStr);
 	
 	// Initialize P1 serial port (pins are predefined for Serial1)
 	Serial1.begin(P1_BAUD_RATE, SERIAL_8N1);
 	
-	Serial.println("P1 Serial initialized at 115200 baud");
-	Serial.println("Bridge ready!");
-	
+	LOG_INFO("P1 Serial initialized at 115200 baud");
+	LOG_INFO("Bridge ready!");
+
 	statusLed.setPixelColor(0, statusLed.Color(0, 255, 0)); // Green to indicate ready
 	statusLed.show();
 }
