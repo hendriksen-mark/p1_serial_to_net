@@ -1,4 +1,5 @@
 #include "clients.h"
+#include "custom_log.h"
 #define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
 #include <DebugLog.h>
 
@@ -20,13 +21,13 @@ void initializeClients() {
 
 	// Start the server
 	server.begin();
-	LOG_INFO("Server listening on port:", SERVER_PORT);
+	REMOTE_LOG_INFO("P1 Server listening on port:", SERVER_PORT);
 }
 
 void handleNewConnections() {
 	EthernetClient newClient = server.accept();
 	if (newClient) {
-		LOG_DEBUG("New client attempting to connect");
+		REMOTE_LOG_DEBUG("New client attempting to connect");
 
 		// Find available slot
 		int availableSlot = -1;
@@ -43,8 +44,8 @@ void handleNewConnections() {
 			clientConnected[availableSlot] = true;
 			clientLastActivity[availableSlot] = millis();
 
-			LOG_DEBUG("Client connected on slot:", availableSlot);
-			LOG_DEBUG("Client IP:", newClient.remoteIP());
+			REMOTE_LOG_DEBUG("Client connected on slot:", availableSlot);
+			REMOTE_LOG_DEBUG("Client IP:", newClient.remoteIP());
 
 			// Send telnet negotiation if needed
 			// IAC WILL ECHO, IAC WILL SUPPRESS_GO_AHEAD
@@ -57,7 +58,7 @@ void handleNewConnections() {
 
 		} else {
 			// No available slots - implement kick oldest user
-			LOG_WARN("Max connections reached. Kicking oldest client.");
+			REMOTE_LOG_WARN("Max connections reached. Kicking oldest client.");
 			// Find oldest client
 			int oldestSlot = 0;
 			unsigned long oldestActivity = clientLastActivity[0];
@@ -73,7 +74,7 @@ void handleNewConnections() {
 				clients[oldestSlot].println("Connection terminated: New client connecting");
 				clients[oldestSlot].stop();
 				clientConnected[oldestSlot] = false;
-				LOG_DEBUG("Kicked client from slot:", oldestSlot);
+				REMOTE_LOG_DEBUG("Kicked client from slot:", oldestSlot);
 			}
 
 			// Accept new client in the freed slot
@@ -81,7 +82,7 @@ void handleNewConnections() {
 			clientConnected[oldestSlot] = true;
 			clientLastActivity[oldestSlot] = millis();
 
-			LOG_INFO("New client connected on slot:", oldestSlot);
+			REMOTE_LOG_INFO("New client connected on slot:", oldestSlot);
 		}
 	}
 }
@@ -112,7 +113,7 @@ void handleClientCommunication() {
 
 			// Check for client timeout
 			if (millis() - clientLastActivity[i] > CLIENT_TIMEOUT) {
-				LOG_DEBUG("Client timeout on slot:", i);
+				REMOTE_LOG_DEBUG("Client timeout on slot:", i);
 				clients[i].stop();
 				clientConnected[i] = false;
 			}
@@ -123,7 +124,7 @@ void handleClientCommunication() {
 void cleanupClients() {
 	for (int i = 0; i < MAX_CONNECTIONS; i++) {
 		if (clientConnected[i] && !clients[i].connected()) {
-			LOG_DEBUG("Client disconnected from slot:", i);
+			REMOTE_LOG_DEBUG("Client disconnected from slot:", i);
 			clientConnected[i] = false;
 			clients[i].stop();
 		}

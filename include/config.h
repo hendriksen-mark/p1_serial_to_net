@@ -56,6 +56,11 @@
 #define MAX_CONNECTIONS 3
 #define CLIENT_TIMEOUT  30000  // 30 seconds in milliseconds
 
+// Log Server Configuration
+#define LOG_SERVER_PORT     2001
+#define MAX_LOG_CONNECTIONS 2
+#define LOG_CLIENT_TIMEOUT  60000  // 60 seconds in milliseconds (longer for log clients)
+
 // Buffer Configuration
 #define P1_BUFFER_SIZE  2048   // Maximum P1 message size
 #define ETHERNET_BUFFER_SIZE 1024

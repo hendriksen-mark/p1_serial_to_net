@@ -1,5 +1,6 @@
 #include "p1_handler.h"
 #include "clients.h"
+#include "custom_log.h"
 #define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
 #include <DebugLog.h>
 
@@ -17,15 +18,15 @@ void initializeP1() {
 	if (P1_DATA_REQUEST_PIN >= 0) {
 		pinMode(P1_DATA_REQUEST_PIN, OUTPUT);
 		digitalWrite(P1_DATA_REQUEST_PIN, HIGH); // Activate data transmission
-		LOG_INFO("P1 data request enabled on GPIO:", P1_DATA_REQUEST_PIN);
+		REMOTE_LOG_INFO("P1 data request enabled on GPIO:", P1_DATA_REQUEST_PIN);
 	}
 
 	// Initialize P1 serial port (pins are predefined for Serial1)
 	// ⚠️ WARNING: Ensure Pin 5 from P1 port uses level shifting (5V->3.3V)
 	Serial1.begin(P1_BAUD_RATE, SERIAL_8N1);
 
-	LOG_INFO("P1 Serial initialized at 115200 baud");
-	LOG_WARN("⚠️ ENSURE P1 Pin 5 uses level shifting (5V->3.3V) to avoid damage!");
+	REMOTE_LOG_INFO("P1 Serial initialized at 115200 baud");
+	REMOTE_LOG_WARN("⚠️ ENSURE P1 Pin 5 uses level shifting (5V->3.3V) to avoid damage!");
 }
 
 void readP1Data() {
@@ -72,7 +73,7 @@ void readP1Data() {
 				// Mark P1 data received for LED indication
 				lastP1DataReceived = millis();
 
-				LOG_DEBUG("P1 message #", totalP1Messages, " sent to clients (", p1Buffer.length(), " bytes)");
+				REMOTE_LOG_DEBUG("P1 message #", totalP1Messages, " sent to clients (", p1Buffer.length(), " bytes)");
 				p1Buffer = "";
 				p1MessageComplete = false;
 			}
@@ -82,7 +83,7 @@ void readP1Data() {
 
 			// Prevent buffer overflow
 			if (p1Buffer.length() > P1_BUFFER_SIZE) {
-				LOG_WARN("P1 buffer overflow, resetting");
+				REMOTE_LOG_WARN("P1 buffer overflow, resetting");
 				p1Buffer = "";
 				p1MessageComplete = false;
 			}

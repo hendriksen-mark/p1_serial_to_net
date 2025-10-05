@@ -1,5 +1,6 @@
 #include "network_init.h"
 #include "led_status.h"
+#include "custom_log.h"
 #define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
 #include <DebugLog.h>
 
@@ -28,7 +29,7 @@ void initializeNetwork() {
 	if (W5500_INT_PIN >= 0) {
 		pinMode(W5500_INT_PIN, INPUT_PULLUP);
 		attachInterrupt(digitalPinToInterrupt(W5500_INT_PIN), w5500InterruptHandler, FALLING);
-		LOG_DEBUG("W5500 interrupt enabled on GPIO:", W5500_INT_PIN);
+		REMOTE_LOG_DEBUG("W5500 interrupt enabled on GPIO:", W5500_INT_PIN);
 	}
 
 	// Initialize SPI for W5500
@@ -37,12 +38,12 @@ void initializeNetwork() {
 	// Initialize Ethernet with W5500
 	Ethernet.init(W5500_CS_PIN);
 
-	LOG_DEBUG("Starting Ethernet connection...");
-	LOG_DEBUG("Requesting IP address from DHCP...");
+	REMOTE_LOG_DEBUG("Starting Ethernet connection...");
+	REMOTE_LOG_DEBUG("Requesting IP address from DHCP...");
 
 	// Configure DHCP
 	if (Ethernet.begin(mac) == 0) {
-		LOG_ERROR("Failed to configure Ethernet using DHCP");
+		REMOTE_LOG_ERROR("Failed to configure Ethernet using DHCP");
 		// Indicate failure with rapid LED blinking (red)
 		while (true) {
 			setStatusLEDColor(255, 0, 0); // Red
@@ -54,7 +55,7 @@ void initializeNetwork() {
 
 	// Check if Ethernet hardware is found
 	if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-		LOG_ERROR("Ethernet shield was not found. Check wiring.");
+		REMOTE_LOG_ERROR("Ethernet shield was not found. Check wiring.");
 		while (true) {
 			setStatusLEDColor(255, 255, 0); // Yellow
 			delay(200);
@@ -65,19 +66,19 @@ void initializeNetwork() {
 
 	// Check if cable is connected
 	if (Ethernet.linkStatus() == LinkOFF) {
-		LOG_ERROR("Ethernet cable is not connected.");
+		REMOTE_LOG_ERROR("Ethernet cable is not connected.");
 	}
 
-	LOG_INFO("DHCP IP assigned:", Ethernet.localIP());
-	LOG_INFO("Gateway:", Ethernet.gatewayIP());
-	LOG_INFO("Subnet:", Ethernet.subnetMask());
-	LOG_INFO("DNS:", Ethernet.dnsServerIP());
+	REMOTE_LOG_INFO("DHCP IP assigned:", Ethernet.localIP());
+	REMOTE_LOG_INFO("Gateway:", Ethernet.gatewayIP());
+	REMOTE_LOG_INFO("Subnet:", Ethernet.subnetMask());
+	REMOTE_LOG_INFO("DNS:", Ethernet.dnsServerIP());
 
 	// Format MAC address for logging
 	char macStr[18];
 	sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", 
 			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	LOG_INFO("MAC Address:", macStr);
+	REMOTE_LOG_INFO("MAC Address:", macStr);
 }
 
 bool isNetworkConnected() {

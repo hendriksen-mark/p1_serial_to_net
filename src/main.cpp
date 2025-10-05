@@ -8,6 +8,8 @@
 #include "led_status.h"
 #include "network_init.h"
 #include "diagnostics.h"
+#include "log_server.h"
+#include "custom_log.h"
 
 void setup() {
 	// Initialize serial for debugging
@@ -21,7 +23,7 @@ void setup() {
 		; // Wait for serial port to connect, but timeout after 3 seconds
 	}
 
-	LOG_INFO("P1 Serial-to-Network Bridge Starting...");
+	REMOTE_LOG_INFO("P1 Serial-to-Network Bridge Starting...");
 
 	// Initialize status LED
 	initializeStatusLED();
@@ -32,10 +34,13 @@ void setup() {
 	// Initialize client management
 	initializeClients();
 
+	// Initialize log server for remote debugging
+	initializeLogServer();
+
 	// Initialize P1 protocol handler
 	initializeP1();
 
-	LOG_INFO("Bridge ready!");
+	REMOTE_LOG_INFO("Bridge ready!");
 	setStatusLEDColor(0, 255, 0); // Green to indicate ready
 }
 
@@ -51,17 +56,24 @@ void loop() {
 		// Process network events when interrupt occurs or every 100ms as fallback
 		w5500InterruptFlag = false; // Clear the flag
 
-		// Handle new client connections
+		// Handle new P1 client connections
 		handleNewConnections();
 
-		// Handle client communication
+		// Handle P1 client communication
 		handleClientCommunication();
 
-		// Clean up disconnected clients
+		// Clean up disconnected P1 clients
 		cleanupClients();
-	}
 
-	// Always read P1 data from serial (high priority)
+		// Handle new log client connections
+		handleNewLogConnections();
+
+		// Handle log client communication
+		handleLogClientCommunication();
+
+		// Clean up disconnected log clients
+		cleanupLogClients();
+	}	// Always read P1 data from serial (high priority)
 	readP1Data();
 
 	// Small delay to prevent overwhelming the system
