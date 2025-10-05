@@ -22,11 +22,12 @@ bool clientConnected[MAX_CONNECTIONS];
 String p1Buffer = "";
 bool p1MessageComplete = false;
 
-// Status LED
-unsigned long lastLedBlink = 0;
-bool ledState = false;
+// Status LED - New improved system
+unsigned long lastLedUpdate = 0;
 unsigned long lastP1DataReceived = 0;
-bool p1DataIndicator = false;
+unsigned long heartbeatTimer = 0;
+uint8_t ledBrightness = 50;  // Base brightness (0-255)
+bool heartbeatDirection = true;
 
 // W5500 Interrupt handling
 volatile bool w5500InterruptFlag = false;
@@ -158,7 +159,6 @@ void readP1Data() {
 				
 				// Mark P1 data received for LED indication
 				lastP1DataReceived = millis();
-				p1DataIndicator = true;
 
 				LOG_DEBUG("P1 message #", totalP1Messages, " sent to clients (", p1Buffer.length(), " bytes)");
 				p1Buffer = "";
@@ -349,42 +349,74 @@ void setup() {
 	statusLed.show();
 }
 
+// Enhanced LED status management
+void updateStatusLED() {
+	unsigned long now = millis();
+	
+	// Update LED every 50ms for smooth effects
+	if (now - lastLedUpdate < 50) return;
+	lastLedUpdate = now;
+	
+	// Count connected clients
+	int connectedClients = 0;
+	for (int i = 0; i < MAX_CONNECTIONS; i++) {
+		if (clientConnected[i]) connectedClients++;
+	}
+	
+	// Determine base color and brightness based on system status
+	uint8_t red = 0, green = 0, blue = 0;
+	uint8_t baseBrightness = 30; // Low base brightness for subtle indication
+	
+	// Primary status colors (solid, non-blinking)
+	if (connectedClients > 0) {
+		// Connected clients: Blue (intensity based on client count)
+		blue = 60 + (connectedClients * 30); // Brighter blue with more clients
+		baseBrightness = 40;
+	} else {
+		// No clients: Green (ready and waiting)
+		green = 80;
+		baseBrightness = 25;
+	}
+	
+	// P1 data activity: Brief brightness boost (not color change)
+	uint8_t activityBoost = 0;
+	if (now - lastP1DataReceived < 200) { // 200ms boost after P1 data
+		activityBoost = 100; // Brightness boost
+	}
+	
+	// Heartbeat: Gentle breathing effect every 3 seconds
+	uint8_t heartbeatBoost = 0;
+	if (now - heartbeatTimer > 3000) {
+		heartbeatTimer = now;
+		heartbeatDirection = !heartbeatDirection;
+	}
+	
+	// Smooth breathing calculation
+	float breathePhase = (now - heartbeatTimer) / 1500.0; // 1.5 second each direction
+	if (breathePhase > 1.0) breathePhase = 1.0;
+	if (!heartbeatDirection) breathePhase = 1.0 - breathePhase;
+	heartbeatBoost = (uint8_t)(breathePhase * 20); // Gentle 20-point brightness variation
+	
+	// Calculate final brightness
+	uint8_t finalBrightness = baseBrightness + activityBoost + heartbeatBoost;
+	if (finalBrightness > 255) finalBrightness = 255;
+	
+	// Apply brightness scaling to colors
+	red = (red * finalBrightness) / 255;
+	green = (green * finalBrightness) / 255;
+	blue = (blue * finalBrightness) / 255;
+	
+	// Set the LED
+	statusLed.setPixelColor(0, statusLed.Color(red, green, blue));
+	statusLed.show();
+}
+
 void loop() {
 	// Maintain Ethernet connection
 	Ethernet.maintain();
 	
-	// Handle status LED blinking
-	// Fast purple blink when P1 data received (300ms), then back to normal pattern
-	if (p1DataIndicator && (millis() - lastP1DataReceived < 300)) {
-		// Fast blink purple for P1 data indication
-		if (millis() - lastLedBlink > 100) {
-			ledState = !ledState;
-			if (ledState) {
-				statusLed.setPixelColor(0, statusLed.Color(128, 0, 128)); // Purple
-			} else {
-				statusLed.setPixelColor(0, statusLed.Color(0, 0, 0)); // Off
-			}
-			statusLed.show();
-			lastLedBlink = millis();
-		}
-	} else {
-		// Reset P1 data indicator after the blink period
-		if (p1DataIndicator) {
-			p1DataIndicator = false;
-		}
-		
-		// Normal slow blink to show system activity (blue/green alternating)
-		if (millis() - lastLedBlink > 1000) {
-			ledState = !ledState;
-			if (ledState) {
-				statusLed.setPixelColor(0, statusLed.Color(0, 0, 255)); // Blue
-			} else {
-				statusLed.setPixelColor(0, statusLed.Color(0, 255, 0)); // Green
-			}
-			statusLed.show();
-			lastLedBlink = millis();
-		}
-	}
+	// Update status LED with new smooth behavior
+	updateStatusLED();
 	
 	// Handle network events (optimized with interrupt)
 	if (w5500InterruptFlag || (millis() % 100 == 0)) {
