@@ -22,9 +22,31 @@
 #define W5500_MAC_ADDRESS {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED} // Default MAC address (change if needed)
 
 // P1 Serial Configuration
-// Note: Serial1 uses predefined pins on RP2040 (typically GPIO0=TX, GPIO1=RX)
+// ⚠️  CRITICAL VOLTAGE WARNING ⚠️
+// P1 port Pin 5 (data) outputs 5V TTL levels but RP2040 is 3.3V!
+// YOU MUST USE LEVEL SHIFTING to avoid damaging the RP2040:
+//
+// Option 1 - Voltage Divider (simple):
+//   P1 Pin 5 --[10kΩ]--+--[6.8kΩ]-- GND
+//                       |
+//                       +----> RP2040 GPIO1 (RX)
+//
+// Option 2 - Level Shifter IC (recommended):
+//   Use 74LVC1T45 or 74LV4050 between P1 Pin 5 and GPIO1
+//
+// P1 Port Connections:
+// Pin 1: +5V (optional, for powering external circuits)
+// Pin 2: Data Request (5V, connect via 1kΩ resistor to GPIO pin if needed)
+// Pin 3: Data GND (connect to RP2040 GND)
+// Pin 4: NC (not connected)
+// Pin 5: Data (5V levels - NEEDS LEVEL SHIFTING to GPIO1 RX)
+// Pin 6: Power GND (connect to RP2040 GND)
+//
+// Note: Serial1 uses predefined pins on RP2040 (GPIO0=TX, GPIO1=RX)
 // For Waveshare RP2040 Zero: Serial1 RX=GPIO1, TX=GPIO0
 #define P1_BAUD_RATE    115200
+#define P1_DATA_REQUEST_PIN  29  // Optional: GPIO to control P1 data request (Pin 2)
+                                 // Set to -1 if not used (most meters transmit continuously)
 
 // Network Configuration - Using DHCP
 // IP address will be automatically assigned by your router/modem
@@ -45,7 +67,8 @@
 // SPI Configuration for W5500
 // Using SPI0 (default): MISO=4, MOSI=3, SCK=2, SS=5 (from pins_arduino.h)
 
-// Still available pins for future expansion: 8,9,10,11,12,13,14,15,26,27,28,29
+// Still available pins for future expansion: 9,10,11,12,13,14,15,26,27,28,29
+// Note: GPIO29 is optionally used for P1 data request
 
 // P1 Protocol Configuration
 #define P1_START_CHAR   '/'

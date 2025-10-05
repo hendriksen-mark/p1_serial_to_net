@@ -330,10 +330,19 @@ void setup() {
 			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	LOG_INFO("MAC Address:", macStr);
 	
+	// Initialize P1 data request pin (optional)
+	if (P1_DATA_REQUEST_PIN >= 0) {
+		pinMode(P1_DATA_REQUEST_PIN, OUTPUT);
+		digitalWrite(P1_DATA_REQUEST_PIN, HIGH); // Activate data transmission
+		LOG_INFO("P1 data request enabled on GPIO:", P1_DATA_REQUEST_PIN);
+	}
+	
 	// Initialize P1 serial port (pins are predefined for Serial1)
+	// ⚠️ WARNING: Ensure Pin 5 from P1 port uses level shifting (5V->3.3V)
 	Serial1.begin(P1_BAUD_RATE, SERIAL_8N1);
 	
 	LOG_INFO("P1 Serial initialized at 115200 baud");
+	LOG_WARN("⚠️ ENSURE P1 Pin 5 uses level shifting (5V->3.3V) to avoid damage!");
 	LOG_INFO("Bridge ready!");
 
 	statusLed.setPixelColor(0, statusLed.Color(0, 255, 0)); // Green to indicate ready

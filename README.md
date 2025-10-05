@@ -35,11 +35,35 @@ INT           ->  GPIO7 (Interrupt - optional but recommended)
 > **⚠️ Important**: The Waveshare RP2040 Zero has limited GPIO pins available. The wiring above uses the correct pins that are actually available on this board.
 
 ### P1 Port Connection
+
+> **🚨 CRITICAL SAFETY WARNING 🚨**  
+> **P1 Port Pin 5 outputs 5V TTL levels, but RP2040 is 3.3V!**  
+> **Direct connection WILL DAMAGE your RP2040!**
+
+#### Required Level Shifting Circuit
+
+**Option 1: Simple Voltage Divider (Immediate Solution)**
 ```
-P1 Port       ->  RP2040 Zero
-Pin 5 (Data)  ->  GPIO1 (Serial1 RX - predefined)
-Pin 3 (GND)   ->  GND
-Pin 2 (RTS)   ->  Not used (P1 is read-only)
+P1 Port Pin 5 (5V Data) ----[10kΩ]----+----[6.8kΩ]---- GND
+                                       |
+                                       +----> RP2040 GPIO1 (RX)
+```
+
+**Option 2: Proper Level Shifter (Recommended)**
+```
+P1 Port Pin 5 (5V) -> 74LVC1T45 -> RP2040 GPIO1 (3.3V)
+                   (or 74LV4050)
+```
+
+#### Complete P1 Wiring
+```
+P1 Port       ->  Connection
+Pin 1 (+5V)   ->  Optional: External power (DO NOT connect to RP2040)
+Pin 2 (Req)   ->  Optional: Via 1kΩ resistor to GPIO8 (data request)
+Pin 3 (GND)   ->  RP2040 GND
+Pin 4 (NC)    ->  Not connected
+Pin 5 (Data)  ->  Via LEVEL SHIFTER to GPIO1 (Serial1 RX)
+Pin 6 (GND)   ->  RP2040 GND
 ```
 
 **Notes**: 
