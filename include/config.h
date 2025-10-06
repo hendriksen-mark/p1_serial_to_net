@@ -28,15 +28,27 @@
 //
 // Option 1 - Voltage Divider (simple):
 //   P1 Pin 5 --[10kΩ]--+--[6.8kΩ]-- GND
-//                       |
-//                       +----> RP2040 GPIO1 (RX)
+//                      |
+//                      +----> RP2040 GPIO1 (RX)
 //
 // Option 2 - Level Shifter IC (recommended):
 //   Use 74LVC1T45 or 74LV4050 between P1 Pin 5 and GPIO1
 //
+// Option 3 - Mosfet:
+//   Use a N-channel MOSFET (e.g., 2N7000) as a level shifter circuit
+//	 P1 Pin 1			RP2040 3v3
+//		|					|
+//	   10kΩ					4k7
+//		|					| ---------------> RP2040 GPIO1 (RX)
+//		|			  	 [drain]
+//	 P1 Pin 5 -----[gate][2n7000]
+//					   	 [source]
+//							|
+//						   GND(P1 Pin 3,6) --> RP2040 GND
+//
 // P1 Port Connections:
 // Pin 1: +5V (optional, for powering external circuits)
-// Pin 2: Data Request (5V, connect via 1kΩ resistor to GPIO pin if needed)
+// Pin 2: Data Request (P1 have internal current limit resistor, high=request data)
 // Pin 3: Data GND (connect to RP2040 GND)
 // Pin 4: NC (not connected)
 // Pin 5: Data (5V levels - NEEDS LEVEL SHIFTING to GPIO1 RX)
@@ -46,7 +58,7 @@
 // For Waveshare RP2040 Zero: Serial1 RX=GPIO1, TX=GPIO0
 #define P1_BAUD_RATE    115200
 #define P1_DATA_REQUEST_PIN  29  // Optional: GPIO to control P1 data request (Pin 2)
-                                 // Set to -1 if not used (most meters transmit continuously)
+								 // Set to -1 if not used (most meters transmit continuously)
 
 // Network Configuration - Using DHCP
 // IP address will be automatically assigned by your router/modem
