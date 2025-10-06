@@ -1,8 +1,6 @@
 #include "network_init.h"
 #include "led_status.h"
 #include "custom_log.h"
-#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
-#include <DebugLog.h>
 
 // Network configuration - using DHCP
 byte mac[] = W5500_MAC_ADDRESS;

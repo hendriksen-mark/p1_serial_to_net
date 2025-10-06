@@ -1,7 +1,5 @@
 #include "log_server.h"
 #include "custom_log.h"
-#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
-#include <DebugLog.h>
 
 // Global variables
 EthernetServer logServer(LOG_SERVER_PORT);

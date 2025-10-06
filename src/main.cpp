@@ -1,7 +1,5 @@
 #include <Arduino.h>
 #include <Ethernet.h>
-#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
-#include <DebugLog.h>
 #include "config.h"
 #include "clients.h"
 #include "p1_handler.h"

@@ -4,8 +4,6 @@
 #include "log_server.h"
 #include "custom_log.h"
 #include <Ethernet.h>
-#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
-#include <DebugLog.h>
 
 void printStatus() {
 	REMOTE_LOG_INFO("=== Bridge Status ===");

@@ -1,8 +1,6 @@
 #include "p1_handler.h"
 #include "clients.h"
 #include "custom_log.h"
-#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
-#include <DebugLog.h>
 
 // P1 message buffer and state
 String p1Buffer = "";

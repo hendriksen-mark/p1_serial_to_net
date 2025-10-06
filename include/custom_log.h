@@ -2,6 +2,8 @@
 #define CUSTOM_LOG_H
 
 #include <Arduino.h>
+#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
+#include <DebugLog.h>
 
 // Helper function to build log messages
 void sendRemoteLog(const char* level, const String& message);
