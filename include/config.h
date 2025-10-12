@@ -65,7 +65,7 @@
 
 // Server Configuration
 #define SERVER_PORT     2000
-#define MAX_CONNECTIONS 3
+#define MAX_CONNECTIONS 4
 #define CLIENT_TIMEOUT  30000  // 30 seconds in milliseconds
 
 // Log Server Configuration
