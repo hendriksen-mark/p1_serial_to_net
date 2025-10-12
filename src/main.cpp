@@ -8,6 +8,7 @@
 #include "diagnostics.h"
 #include "log_server.h"
 #include "custom_log.h"
+#include "ota_server.h"
 
 void setup() {
 	// Initialize serial for debugging
@@ -34,6 +35,9 @@ void setup() {
 
 	// Initialize log server for remote debugging
 	initializeLogServer();
+
+	// Initialize OTA server for firmware updates
+	initializeOTAServer();
 
 	// Initialize P1 protocol handler
 	initializeP1();
@@ -71,6 +75,9 @@ void loop() {
 
 		// Clean up disconnected log clients
 		cleanupLogClients();
+
+		// Handle OTA server connections and requests
+		handleOTAConnections();
 	}	// Always read P1 data from serial (high priority)
 	readP1Data();
 

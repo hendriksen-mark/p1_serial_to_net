@@ -73,6 +73,15 @@
 #define MAX_LOG_CONNECTIONS 2
 #define LOG_CLIENT_TIMEOUT  60000  // 60 seconds in milliseconds (longer for log clients)
 
+// OTA (Over-The-Air) Update Configuration
+#define OTA_SERVER_PORT     8080
+#define OTA_ENABLED         true
+#define OTA_USERNAME        "admin"         // Change this!
+#define OTA_PASSWORD        "update123"     // Change this!
+#define OTA_MAX_FILE_SIZE   (1024 * 1024)  // 1MB max firmware size
+#define OTA_BUFFER_SIZE     512             // Upload buffer size
+#define OTA_TIMEOUT         300000          // 5 minutes timeout for uploads
+
 // Buffer Configuration
 #define P1_BUFFER_SIZE  2048   // Maximum P1 message size
 #define ETHERNET_BUFFER_SIZE 1024
