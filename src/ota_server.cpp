@@ -18,7 +18,7 @@ unsigned long lastOTAUpdate = 0;
 
 bool verifyOTACredentials(const String& authHeader) {
 	// Extract base64 encoded credentials
-	// Format: "Authorization: Basic YWRtaW46dXBkYXRlMTIz"
+	// Format: "Authorization: Basic YWRtaW46dXBkYXRlMTIz" decodes to "admin:update123"
 	int basicIndex = authHeader.indexOf("Basic ");
 	if (basicIndex == -1) {
 		REMOTE_LOG_DEBUG("Auth header format invalid - 'Basic ' not found");
