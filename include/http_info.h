@@ -14,6 +14,8 @@ void handleHTTPInfoConnections();
 void handleHTTPRequest(EthernetClient& client);
 void sendHTTPResponse(EthernetClient& client, int statusCode, const String& contentType, const String& content);
 void sendInfoPage(EthernetClient& client);
+void sendP1DataPage(EthernetClient& client);
+void sendLogsPage(EthernetClient& client);
 void sendRedirect(EthernetClient& client, const String& location);
 String getDeviceInfoHTML();
 String getHTTPHeaders(int statusCode, const String& contentType, int contentLength = -1);

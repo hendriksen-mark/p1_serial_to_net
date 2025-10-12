@@ -1,6 +1,12 @@
 #include "http_info.h"
+#include "ota_server.h"
 #include "custom_log.h"
+#include "clients.h"
+#include "log_server.h"
+#include "p1_handler.h"
+#include "ntp_client.h"
 #include <Ethernet.h>
+#include <base64.h>
 
 // Global variables
 EthernetServer httpInfoServer(HTTP_INFO_PORT);
@@ -30,6 +36,7 @@ void handleHTTPRequest(EthernetClient& client) {
 	String request = "";
 	String method = "";
 	String path = "";
+	bool isAuthorized = false;
 
 	// Read the HTTP request
 	unsigned long timeout = millis() + 5000; // 5 second timeout
@@ -43,7 +50,8 @@ void handleHTTPRequest(EthernetClient& client) {
 				break;
 			}
 
-			if (line.startsWith("GET ") || line.startsWith("POST ")) {
+			// Parse the first line which should contain the HTTP method and path
+			if (method.length() == 0 && (line.startsWith("GET ") || line.startsWith("POST ") || line.startsWith("HEAD ") || line.startsWith("PUT ") || line.startsWith("DELETE "))) {
 				// Parse the request line: METHOD path HTTP/1.1
 				int firstSpace = line.indexOf(' ');
 				int secondSpace = line.indexOf(' ', firstSpace + 1);
@@ -51,25 +59,110 @@ void handleHTTPRequest(EthernetClient& client) {
 				if (firstSpace > 0 && secondSpace > firstSpace) {
 					method = line.substring(0, firstSpace);
 					path = line.substring(firstSpace + 1, secondSpace);
+				} else if (firstSpace > 0) {
+					// Handle case where there might not be HTTP version
+					method = line.substring(0, firstSpace);
+					path = line.substring(firstSpace + 1);
+					// Remove any trailing whitespace or HTTP version info
+					int httpPos = path.indexOf(" HTTP/");
+					if (httpPos > 0) {
+						path = path.substring(0, httpPos);
+					}
+				}
+				
+				// Debug log the parsed line
+				REMOTE_LOG_DEBUG(("Parsed request line: " + line).c_str());
+				REMOTE_LOG_DEBUG(("Method: [" + method + "], Path: [" + path + "]").c_str());
+			}
+
+			// Check for Authorization header (for OTA endpoints)
+			if (line.startsWith("Authorization: ")) {
+				REMOTE_LOG_DEBUG(("Auth header received: " + line).c_str());
+				if (verifyOTACredentials(line)) {
+					isAuthorized = true;
+					REMOTE_LOG_DEBUG("OTA credentials verified successfully");
+				} else {
+					REMOTE_LOG_DEBUG("OTA credentials verification failed");
 				}
 			}
 		}
 	}
 
-	String logMsg = "HTTP Request: " + method + " " + path;
+	String logMsg = "HTTP Request: [" + method + "] [" + path + "]";
 	REMOTE_LOG_DEBUG(logMsg.c_str());
+	
+	// Debug: Check if method is empty
+	if (method.length() == 0) {
+		REMOTE_LOG_DEBUG("Warning: HTTP method is empty!");
+		method = "GET"; // Default to GET if parsing failed
+		if (path.length() == 0) {
+			path = "/"; // Default to root path
+		}
+	}
 
 	if (method == "GET") {
 		if (path == "/" || path == "/info") {
 			sendInfoPage(client);
 		} else if (path == "/p1") {
-			sendRedirect(client, "http://" + Ethernet.localIP().toString() + ":" + String(SERVER_PORT));
+			sendP1DataPage(client);
 		} else if (path == "/logs") {
-			sendRedirect(client, "http://" + Ethernet.localIP().toString() + ":" + String(LOG_SERVER_PORT));
+			sendLogsPage(client);
 		} else if (path == "/ota" || path == "/upload") {
-			sendRedirect(client, "http://" + Ethernet.localIP().toString() + ":" + String(OTA_SERVER_PORT));
+			// Handle OTA upload page
+			if (isAuthorized) {
+				String uploadPage = "<!DOCTYPE html><html><head><title>P1 Bridge OTA Update</title>";
+				uploadPage += "<style>";
+				uploadPage += "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background-color: #f5f5f5; }";
+				uploadPage += ".container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }";
+				uploadPage += "h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }";
+				uploadPage += "input[type=file] { margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%; }";
+				uploadPage += "input[type=submit] { background: #e74c3c; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }";
+				uploadPage += "input[type=submit]:hover { background: #c0392b; }";
+				uploadPage += ".warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }";
+				uploadPage += ".info { background: #d1ecf1; border: 1px solid #bee5eb; padding: 15px; border-radius: 5px; margin: 15px 0; }";
+				uploadPage += ".back-link { display: inline-block; margin-top: 20px; padding: 8px 16px; background: #3498db; color: white; text-decoration: none; border-radius: 5px; }";
+				uploadPage += ".back-link:hover { background: #2980b9; }";
+				uploadPage += "</style></head><body>";
+				uploadPage += "<div class='container'>";
+				uploadPage += "<h1>P1 Bridge Firmware Update</h1>";
+				uploadPage += "<div class='warning'><strong>WARNING:</strong> Only upload firmware files (.uf2) specifically built for this device. Uploading incorrect firmware may brick the device!</div>";
+				uploadPage += "<form method='POST' action='/upload-firmware' enctype='multipart/form-data'>";
+				uploadPage += "<p><strong>Select firmware file (.uf2):</strong></p>";
+				uploadPage += "<input type='file' name='firmware' accept='.uf2' required>";
+				uploadPage += "<br><input type='submit' value='Upload Firmware'>";
+				uploadPage += "</form>";
+				uploadPage += "<div class='info'>";
+				uploadPage += "<h3>Current Status</h3>";
+				uploadPage += "<p><strong>Current Time:</strong> " + getFormattedDateTime() + "</p>";
+				uploadPage += "<p><strong>Uptime:</strong> " + String(millis() / 1000) + " seconds</p>";
+				uploadPage += "<p><strong>Flash Size:</strong> 2MB</p>";
+				uploadPage += "<p><strong>Firmware:</strong> P1 Bridge v1.0</p>";
+				uploadPage += "</div>";
+				uploadPage += "<a href='/status' class='back-link'>Check OTA Status</a> ";
+				uploadPage += "<a href='/' class='back-link'>Main Page</a>";
+				uploadPage += "</div></body></html>";
+				sendHTTPResponse(client, 200, "text/html", uploadPage);
+			} else {
+				// Send 401 with proper WWW-Authenticate header
+				String headers = "HTTP/1.1 401 Unauthorized\r\n";
+				headers += "WWW-Authenticate: Basic realm=\"OTA Access\"\r\n";
+				headers += "Content-Type: text/html\r\n";
+				headers += "Connection: close\r\n";
+				headers += "Server: P1-Bridge/1.0\r\n";
+				headers += "\r\n";
+				
+				String authPage = "<!DOCTYPE html><html><head><title>401 Unauthorized</title></head>";
+				authPage += "<body><h1>401 Unauthorized</h1><p>Authentication required for OTA access.</p>";
+				authPage += "<p>Please use credentials: <strong>admin</strong> / <strong>update123</strong></p>";
+				authPage += "<p><a href='/'>Back to main page</a></p></body></html>";
+				
+				client.print(headers);
+				client.print(authPage);
+			}
 		} else if (path == "/status") {
-			sendRedirect(client, "http://" + Ethernet.localIP().toString() + ":" + String(OTA_SERVER_PORT) + "/status");
+			// Handle OTA status directly - simplified for debugging
+			String status = "OTA Status: Ready\nUptime: " + String(millis() / 1000) + " seconds\nFirmware: P1 Bridge v1.0";
+			sendHTTPResponse(client, 200, "text/plain", status);
 		} else {
 			// 404 Not Found
 			String content = "<!DOCTYPE html><html><head><title>404 Not Found</title></head>";
@@ -77,19 +170,177 @@ void handleHTTPRequest(EthernetClient& client) {
 			content += "<p><a href=\"/\">Return to main page</a></p></body></html>";
 			sendHTTPResponse(client, 404, "text/html", content);
 		}
+	} else if (method == "POST") {
+		if (path == "/upload" || path == "/upload-firmware") {
+			// Handle OTA upload
+			if (isAuthorized) {
+				handleOTAUpload(client);
+			} else {
+				String headers = "HTTP/1.1 401 Unauthorized\r\n";
+				headers += "WWW-Authenticate: Basic realm=\"OTA Upload\"\r\n";
+				headers += "Content-Type: text/html\r\n";
+				headers += "Connection: close\r\n";
+				headers += "\r\n";
+				
+				String authPage = "<!DOCTYPE html><html><head><title>401 Unauthorized</title></head>";
+				authPage += "<body><h1>401 Unauthorized</h1><p>Authentication required for OTA upload.</p>";
+				authPage += "<p>Please use credentials: <strong>admin</strong> / <strong>update123</strong></p></body></html>";
+				
+				client.print(headers);
+				client.print(authPage);
+			}
+		} else {
+			sendHTTPResponse(client, 404, "text/html", "Not Found");
+		}
 	} else {
-		// Method not allowed
-		String content = "<!DOCTYPE html><html><head><title>405 Method Not Allowed</title></head>";
-		content += "<body><h1>405 Method Not Allowed</h1>";
-		content += "<p>Only GET requests are supported.</p></body></html>";
-		sendHTTPResponse(client, 405, "text/html", content);
+		// Handle unsupported methods or parsing errors - default to showing main page
+		REMOTE_LOG_DEBUG(("Unsupported method or parsing error. Method: [" + method + "], treating as GET /").c_str());
+		sendInfoPage(client);
 	}
 }
 
 void sendHTTPResponse(EthernetClient& client, int statusCode, const String& contentType, const String& content) {
-	String headers = getHTTPHeaders(statusCode, contentType, content.length());
+	// Send headers without Content-Length to avoid mismatch issues
+	String headers = "HTTP/1.1 " + String(statusCode) + " OK\r\n";
+	headers += "Content-Type: " + contentType + "\r\n";
+	headers += "Connection: close\r\n";
+	headers += "Server: P1-Bridge/1.0\r\n";
+	headers += "\r\n";
+	
 	client.print(headers);
-	client.print(content);
+	client.flush(); // Ensure headers are sent
+	
+	// Send content in smaller chunks to avoid buffer issues
+	const int chunkSize = 512;
+	int contentLen = content.length();
+	for (int i = 0; i < contentLen; i += chunkSize) {
+		String chunk = content.substring(i, min(i + chunkSize, contentLen));
+		client.print(chunk);
+		client.flush();
+		delay(1); // Small delay to prevent overwhelming the W5500
+	}
+}
+
+void sendP1DataPage(EthernetClient& client) {
+	String content = "<!DOCTYPE html><html><head>";
+	content += "<title>P1 Data Stream - P1 Serial Bridge</title>";
+	content += "<meta charset='UTF-8'>";
+	content += "<meta http-equiv='refresh' content='5'>";  // Auto-refresh every 5 seconds
+	content += "<style>";
+	content += "body { font-family: 'Courier New', monospace; background: #1a1a1a; color: #00ff00; margin: 20px; }";
+	content += ".container { max-width: 1000px; margin: 0 auto; background: #000; padding: 20px; border-radius: 8px; border: 1px solid #333; }";
+	content += "h1 { color: #00ff00; text-align: center; margin-bottom: 20px; }";
+	content += ".status { background: #333; padding: 10px; margin: 10px 0; border-radius: 5px; }";
+	content += ".data-stream { background: #111; padding: 15px; border: 1px solid #333; border-radius: 5px; font-size: 12px; }";
+	content += ".nav-link { display: inline-block; background: #333; color: #00ff00; padding: 8px 15px; text-decoration: none; margin: 5px; border-radius: 5px; }";
+	content += ".nav-link:hover { background: #555; }";
+	content += ".info { color: #ffff00; margin: 10px 0; }";
+	content += "</style></head><body>";
+	content += "<div class='container'>";
+	content += "<h1>P1 Smart Meter Data Stream</h1>";
+	content += "<div class='status'>";
+	content += "<strong>Status:</strong> " + String(getConnectedClientCount()) + " clients connected to TCP port " + String(SERVER_PORT);
+	content += " | <strong>Current Time:</strong> " + getFormattedDateTime();
+	content += " | <strong>Uptime:</strong> " + String(millis() / 1000) + "s";
+	content += "</div>";
+	content += "<div class='info'>Real-time P1 data (auto-refreshes every 5 seconds)</div>";
+	content += "<div class='data-stream'>";
+	// Show recent P1 data from buffer without disrupting TCP clients
+	content += "=== P1 DATA DIAGNOSTICS ===\n";
+	content += "Current time: " + getFormattedDateTime() + " (" + (isNTPTimeValid() ? "NTP synced" : "no NTP") + ")\n";
+	content += "p1MessageComplete: " + String(p1MessageComplete ? "true" : "false") + "\n";
+	content += "p1Buffer.length(): " + String(p1Buffer.length()) + "\n";
+	content += "totalP1Messages: " + String(totalP1Messages) + "\n";
+	content += "totalBytesReceived: " + String(totalBytesReceived) + "\n";
+	if (lastP1DataReceived > 0) {
+		content += "lastP1DataReceived: " + String((millis() - lastP1DataReceived) / 1000) + " seconds ago\n";
+	} else {
+		content += "lastP1DataReceived: never\n";
+	}
+	content += "Connected P1 clients: " + String(getConnectedClientCount()) + "\n";
+	content += "System uptime: " + String(millis() / 1000) + " seconds\n\n";
+	
+	if (p1MessageComplete && p1Buffer.length() > 0) {
+		content += "=== LATEST P1 MESSAGE ===\n";
+		content += p1Buffer;
+	} else if (p1Buffer.length() > 0) {
+		content += "=== PARTIAL P1 DATA (incomplete) ===\n";
+		content += p1Buffer;
+	} else {
+		content += "=== NO P1 DATA AVAILABLE ===\n";
+		content += "Check:\n";
+		content += "1. P1 meter is connected and powered\n";
+		content += "2. Serial connection (GPIO0/1 at 115200 baud)\n";
+		content += "3. Level shifting circuit (5V -> 3.3V)\n";
+		content += "4. P1 data request pin if used\n";
+	}
+	content += "</div>";
+	content += "<div style='text-align: center; margin-top: 20px;'>";
+	content += "<a href='/' class='nav-link'>Main Page</a>";
+	content += "<a href='/logs' class='nav-link'>View Logs</a>";
+	content += "<a href='/status' class='nav-link'>OTA Status</a>";
+	content += "</div>";
+	content += "<div style='text-align: center; margin-top: 15px; color: #666; font-size: 11px;'>";
+	content += "For direct TCP connection: <code style='color: #00ff00;'>telnet " + Ethernet.localIP().toString() + " " + String(SERVER_PORT) + "</code>";
+	content += "</div>";
+	content += "</div></body></html>";
+	sendHTTPResponse(client, 200, "text/html", content);
+}
+
+void sendLogsPage(EthernetClient& client) {
+	String content = "<!DOCTYPE html><html><head>";
+	content += "<title>Debug Logs - P1 Serial Bridge</title>";
+	content += "<meta charset='UTF-8'>";
+	content += "<meta http-equiv='refresh' content='3'>";  // Auto-refresh every 3 seconds
+	content += "<style>";
+	content += "body { font-family: 'Courier New', monospace; background: #0d1117; color: #c9d1d9; margin: 20px; }";
+	content += ".container { max-width: 1200px; margin: 0 auto; background: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d; }";
+	content += "h1 { color: #58a6ff; text-align: center; margin-bottom: 20px; }";
+	content += ".status { background: #21262d; padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #30363d; }";
+	content += ".log-stream { background: #0d1117; padding: 15px; border: 1px solid #30363d; border-radius: 5px; font-size: 11px; max-height: 500px; overflow-y: auto; }";
+	content += ".nav-link { display: inline-block; background: #21262d; color: #58a6ff; padding: 8px 15px; text-decoration: none; margin: 5px; border-radius: 5px; border: 1px solid #30363d; }";
+	content += ".nav-link:hover { background: #30363d; }";
+	content += ".info { color: #f0883e; margin: 10px 0; }";
+	content += ".log-entry { margin: 2px 0; }";
+	content += ".debug { color: #7c3aed; }";
+	content += ".info { color: #2563eb; }";
+	content += ".warning { color: #f59e0b; }";
+	content += ".error { color: #ef4444; }";
+	content += "</style></head><body>";
+	content += "<div class='container'>";
+	content += "<h1>System Debug Logs</h1>";
+	content += "<div class='status'>";
+	content += "<strong>Status:</strong> " + String(getConnectedLogClientCount()) + " clients connected to TCP port " + String(LOG_SERVER_PORT);
+	content += " | <strong>Current Time:</strong> " + getFormattedDateTime();
+	content += " | <strong>Log Level:</strong> DEBUG | <strong>Uptime:</strong> " + String(millis() / 1000) + "s";
+	content += "</div>";
+	content += "<div class='info'>Recent log entries (auto-refreshes every 3 seconds)</div>";
+	content += "<div class='log-stream'>";
+	// Show system status and statistics instead of actual log buffer
+	String currentTime = getFormattedDateTime();
+	content += "[" + currentTime + "] System Status Report<br>";
+	content += "[" + currentTime + "] NTP Status: " + String(isNTPTimeValid() ? "Synchronized" : "Not synced") + "<br>";
+	content += "[" + currentTime + "] P1 clients connected: " + String(getConnectedClientCount()) + "<br>";
+	content += "[" + currentTime + "] Log clients connected: " + String(getConnectedLogClientCount()) + "<br>";
+	content += "[" + currentTime + "] Total P1 messages: " + String(totalP1Messages) + "<br>";
+	content += "[" + currentTime + "] Total log messages: " + String(totalLogMessages) + "<br>";
+	content += "[" + currentTime + "] Total bytes sent: " + String(totalBytesSent) + "<br>";
+	content += "[" + currentTime + "] HTTP requests handled: " + String(totalHTTPRequests) + "<br>";
+	content += "[" + currentTime + "] System uptime: " + String(millis() / 1000) + " seconds<br>";
+	if (lastP1DataReceived > 0) {
+		content += "[" + currentTime + "] Last P1 data: " + String((millis() - lastP1DataReceived) / 1000) + " seconds ago<br>";
+	}
+	content += "</div>";
+	content += "<div style='text-align: center; margin-top: 20px;'>";
+	content += "<a href='/' class='nav-link'>Main Page</a>";
+	content += "<a href='/p1' class='nav-link'>P1 Data</a>";
+	content += "<a href='/status' class='nav-link'>OTA Status</a>";
+	content += "</div>";
+	content += "<div style='text-align: center; margin-top: 15px; color: #6e7681; font-size: 11px;'>";
+	content += "For direct TCP connection: <code style='color: #58a6ff;'>telnet " + Ethernet.localIP().toString() + " " + String(LOG_SERVER_PORT) + "</code>";
+	content += "</div>";
+	content += "</div></body></html>";
+	sendHTTPResponse(client, 200, "text/html", content);
 }
 
 void sendInfoPage(EthernetClient& client) {
@@ -154,6 +405,10 @@ String getDeviceInfoHTML() {
 	html += "</div>\n";
 	html += "            </div>\n";
 	html += "            <div class=\"info-card\">\n";
+	html += "                <div class=\"info-label\">Current Time:</div>\n";
+	html += "                <div>" + getFormattedDateTime() + " " + (isNTPTimeValid() ? "(NTP)" : "(no sync)") + "</div>\n";
+	html += "            </div>\n";
+	html += "            <div class=\"info-card\">\n";
 	html += "                <div class=\"info-label\">Uptime:</div>\n";
 	html += "                <div>" + String(millis() / 1000) + " seconds</div>\n";
 	html += "            </div>\n";
@@ -166,11 +421,11 @@ String getDeviceInfoHTML() {
 	// Services
 	html += "        <h2>Available Services</h2>\n";
 	html += "        <div class=\"services\">\n";
-	html += "            <a href=\"/p1\" class=\"service-link\">📊 P1 Data Stream (Port " + String(SERVER_PORT) + ")</a>\n";
-	html += "            <a href=\"/logs\" class=\"service-link logs\">📋 Remote Logging (Port " + String(LOG_SERVER_PORT) + ")</a>\n";
+	html += "            <a href=\"/p1\" class=\"service-link\">P1 Data Stream (Port " + String(SERVER_PORT) + ")</a>\n";
+	html += "            <a href=\"/logs\" class=\"service-link logs\">Remote Logging (Port " + String(LOG_SERVER_PORT) + ")</a>\n";
 	if (OTA_ENABLED) {
-		html += "            <a href=\"/ota\" class=\"service-link upload\">🚀 Firmware Update (Port " + String(OTA_SERVER_PORT) + ")</a>\n";
-		html += "            <a href=\"/status\" class=\"service-link\">📈 OTA Status</a>\n";
+		html += "            <a href=\"/ota\" class=\"service-link upload\">Firmware Update</a>\n";
+		html += "            <a href=\"/status\" class=\"service-link\">OTA Status</a>\n";
 	}
 	html += "        </div>\n";
 
@@ -180,8 +435,8 @@ String getDeviceInfoHTML() {
 	html += "            <p><strong>P1 Data Stream:</strong> Connect to port " + String(SERVER_PORT) + " with a TCP client to receive real-time P1 smart meter data.</p>\n";
 	html += "            <p><strong>Remote Logging:</strong> Connect to port " + String(LOG_SERVER_PORT) + " to monitor system logs and debugging information.</p>\n";
 	if (OTA_ENABLED) {
-		html += "            <p><strong>Firmware Update:</strong> Access the OTA (Over-The-Air) firmware update interface on port " + String(OTA_SERVER_PORT) + ". Authentication required.</p>\n";
-		html += "            <p><strong>OTA Status:</strong> View OTA update statistics and current status without authentication.</p>\n";
+		html += "            <p><strong>Firmware Update:</strong> Access the OTA (Over-The-Air) firmware update interface at /ota. Authentication required.</p>\n";
+		html += "            <p><strong>OTA Status:</strong> View OTA update statistics and current status at /status without authentication.</p>\n";
 	}
 	html += "        </div>\n";
 
@@ -193,11 +448,12 @@ String getDeviceInfoHTML() {
 	html += "                <li>P1 Data: <code>telnet " + Ethernet.localIP().toString() + " " + String(SERVER_PORT) + "</code></li>\n";
 	html += "                <li>Logs: <code>telnet " + Ethernet.localIP().toString() + " " + String(LOG_SERVER_PORT) + "</code></li>\n";
 	html += "            </ul>\n";
+	html += "            <p><strong>W5500 Socket Usage:</strong> P1:" + String(MAX_CONNECTIONS) + " + Log:" + String(MAX_LOG_CONNECTIONS) + " + HTTP/OTA:1 + NTP:0 + DHCP:1 = 7/8 sockets</p>\n";
 	html += "        </div>\n";
 
 	// Footer
 	html += "        <div class=\"footer\">\n";
-	html += "            <p>P1 Serial-to-Network Bridge | Uptime: " + String(millis() / 1000) + "s | Requests: " + String(totalHTTPRequests) + "</p>\n";
+	html += "            <p>P1 Serial-to-Network Bridge | " + getFormattedDateTime() + " | Uptime: " + String(millis() / 1000) + "s | Requests: " + String(totalHTTPRequests) + "</p>\n";
 	html += "        </div>\n";
 	html += "    </div>\n";
 	html += "</body>\n";

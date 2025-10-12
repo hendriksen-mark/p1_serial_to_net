@@ -64,17 +64,24 @@
 // IP address will be automatically assigned by your router/modem
 
 // Server Configuration
+// W5500 Socket Allocation Strategy (8 total sockets, 7 usable):
+// - P1 Server (port 2000): 1 server + 3 clients = 4 sockets
+// - Log Server (port 2001): 1 server + 1 client = 2 sockets  
+// - HTTP/OTA Server (port 80): 1 server socket = 1 socket (OTA integrated)
+// - NTP Client: 0 sockets (uses temporary socket when needed)
+// - DHCP/Network: 1 socket reserved by W5500 (not user-controllable)
+// Total: 7 usable sockets + 1 reserved = 8 hardware sockets (optimized allocation)
 #define SERVER_PORT     2000
-#define MAX_CONNECTIONS 4
-#define CLIENT_TIMEOUT  30000  // 30 seconds in milliseconds
+#define MAX_CONNECTIONS 3       // P1 data clients (2 services + 1 debug)
+#define CLIENT_TIMEOUT  30000   // 30 seconds in milliseconds
 
-// Log Server Configuration
+// Log Server Configuration  
 #define LOG_SERVER_PORT     2001
-#define MAX_LOG_CONNECTIONS 2
+#define MAX_LOG_CONNECTIONS 1   // Log clients (reduced to fit socket limit)
 #define LOG_CLIENT_TIMEOUT  60000  // 60 seconds in milliseconds (longer for log clients)
 
 // OTA (Over-The-Air) Update Configuration
-#define OTA_SERVER_PORT     8080
+// Note: OTA is now integrated into HTTP server on port 80 (no separate port needed)
 #define OTA_ENABLED         true
 #define OTA_USERNAME        "admin"         // Change this!
 #define OTA_PASSWORD        "update123"     // Change this!
@@ -94,6 +101,14 @@
 // Debug Configuration
 #define DEBUG_SERIAL    true
 #define STATUS_LED_PIN  PIN_NEOPIXEL    // GPIO16 - WS2812 NeoPixel LED (onboard)
+
+// NTP Time Configuration
+#define NTP_ENABLED         true            // Enable NTP time synchronization
+#define NTP_SERVER          "pool.ntp.org"  // NTP server to use
+#define NTP_UPDATE_INTERVAL 3600000         // Update every hour (3600 seconds)
+#define NTP_TIMEZONE_OFFSET 1               // UTC+1 for Netherlands (CET)
+#define NTP_DST_OFFSET      1               // Additional hour for DST (CEST)
+#define NTP_TIMEOUT         10000           // 10 second timeout for NTP requests
 
 // SPI Configuration for W5500
 // Using SPI0 (default): MISO=4, MOSI=3, SCK=2, SS=5 (from pins_arduino.h)

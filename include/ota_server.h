@@ -28,7 +28,6 @@ extern unsigned long lastOTAUpdate;
 
 // Function declarations
 void initializeOTAServer();
-void handleOTAConnections();
 void handleOTAUpload(EthernetClient& client);
 bool verifyOTACredentials(const String& authHeader);
 void sendOTAResponse(EthernetClient& client, int statusCode, const String& message);

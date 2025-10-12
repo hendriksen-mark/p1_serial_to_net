@@ -12,8 +12,7 @@ void printStatus() {
 	REMOTE_LOG_INFO("IP Address:", Ethernet.localIP());
 	REMOTE_LOG_INFO("P1 Server Port:", SERVER_PORT);
 	REMOTE_LOG_INFO("Log Server Port:", LOG_SERVER_PORT);
-	REMOTE_LOG_INFO("HTTP Info Port:", HTTP_INFO_PORT);
-	REMOTE_LOG_INFO("OTA Server Port:", OTA_SERVER_PORT);
+	REMOTE_LOG_INFO("HTTP/OTA Server Port:", HTTP_INFO_PORT);
 	REMOTE_LOG_INFO("Connected P1 Clients:");
 	int connectedCount = getConnectedClientCount();
 	for (int i = 0; i < MAX_CONNECTIONS; i++) {

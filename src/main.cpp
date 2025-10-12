@@ -8,8 +8,8 @@
 #include "diagnostics.h"
 #include "log_server.h"
 #include "custom_log.h"
-#include "ota_server.h"
 #include "http_info.h"
+#include "ntp_client.h"
 
 void setup() {
 	// Initialize serial for debugging
@@ -37,11 +37,11 @@ void setup() {
 	// Initialize log server for remote debugging
 	initializeLogServer();
 
-	// Initialize HTTP info server for web interface
+	// Initialize HTTP info server for web interface (includes OTA endpoints)
 	initializeHTTPInfoServer();
 
-	// Initialize OTA server for firmware updates
-	initializeOTAServer();
+	// Initialize NTP time synchronization
+	initializeNTP();
 
 	// Initialize P1 protocol handler
 	initializeP1();
@@ -80,12 +80,14 @@ void loop() {
 		// Clean up disconnected log clients
 		cleanupLogClients();
 
-		// Handle HTTP info server requests
+		// Handle HTTP info server requests (includes OTA endpoints)
 		handleHTTPInfoConnections();
-
-		// Handle OTA server connections and requests
-		handleOTAConnections();
-	}	// Always read P1 data from serial (high priority)
+	}
+	
+	// Handle NTP time updates
+	handleNTPUpdate();
+	
+	// Always read P1 data from serial (high priority)
 	readP1Data();
 
 	// Small delay to prevent overwhelming the system

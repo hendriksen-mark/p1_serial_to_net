@@ -1,5 +1,6 @@
 #include "log_server.h"
 #include "custom_log.h"
+#include "ntp_client.h"
 
 // Global variables
 EthernetServer logServer(LOG_SERVER_PORT);
@@ -43,7 +44,8 @@ void handleNewLogConnections() {
 
 			// Send welcome message
 			String welcomeMsg = "# Connected to P1 Bridge Log Server\r\n";
-			welcomeMsg += "# Time: " + String(millis()) + "ms\r\n";
+			welcomeMsg += "# Time: " + getFormattedDateTime() + " (uptime: " + String(millis() / 1000) + "s)\r\n";
+			welcomeMsg += "# NTP Status: " + String(isNTPTimeValid() ? "Synchronized" : "Not synced") + "\r\n";
 			welcomeMsg += "# Log format: [TIMESTAMP] [LEVEL] MESSAGE\r\n";
 			logClients[availableSlot].print(welcomeMsg);
 
@@ -73,7 +75,8 @@ void handleNewLogConnections() {
 
 			// Send welcome message
 			String welcomeMsg = "# Connected to P1 Bridge Log Server\r\n";
-			welcomeMsg += "# Time: " + String(millis()) + "ms\r\n";
+			welcomeMsg += "# Time: " + getFormattedDateTime() + " (uptime: " + String(millis() / 1000) + "s)\r\n";
+			welcomeMsg += "# NTP Status: " + String(isNTPTimeValid() ? "Synchronized" : "Not synced") + "\r\n";
 			welcomeMsg += "# Log format: [TIMESTAMP] [LEVEL] MESSAGE\r\n";
 			logClients[oldestSlot].print(welcomeMsg);
 		}
@@ -84,7 +87,8 @@ void sendToAllLogClients(const String& logMessage) {
 	if (getConnectedLogClientCount() == 0) return; // No clients, skip processing
 
 	// Format log message with timestamp
-	String formattedMessage = "[" + String(millis()) + "] " + logMessage + "\r\n";
+	String timestamp = isNTPTimeValid() ? getFormattedDateTime() : ("+" + String(millis() / 1000) + "s");
+	String formattedMessage = "[" + timestamp + "] " + logMessage + "\r\n";
 
 	for (int i = 0; i < MAX_LOG_CONNECTIONS; i++) {
 		if (logClientConnected[i] && logClients[i].connected()) {

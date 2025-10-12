@@ -1,15 +1,9 @@
 #include "ota_server.h"
 #include "custom_log.h"
 #include <base64.h>
-#include <hardware/flash.h>
-#include <hardware/sync.h>
-#include <pico/bootrom.h>
-
-// Flash memory constants
-#define FLASH_TARGET_OFFSET (PICO_FLASH_SIZE_BYTES / 2)  // Use second half of flash
+#include <Updater.h>
 
 // Global variables
-EthernetServer otaServer(OTA_SERVER_PORT);
 OTAState otaState = OTA_IDLE;
 unsigned long otaStartTime = 0;
 unsigned long otaBytesReceived = 0;
@@ -19,95 +13,37 @@ unsigned long otaTotalBytes = 0;
 unsigned long otaLastUpdate = 0;
 unsigned long totalOTAAttempts = 0;
 unsigned long successfulOTAUpdates = 0;
-uint8_t flashBuffer[FLASH_SECTOR_SIZE];
-uint32_t flashBufferPos = 0;
-uint32_t flashWriteAddress = 0;
-
-// Forward declarations
-bool writeFlashSector(uint32_t offset, const uint8_t* data);
-bool addToFlashBuffer(uint8_t byte);
-bool flushFlashBuffer();
 unsigned long lastOTAUpdate = 0;
-
-// Temporary storage for firmware
-uint8_t otaBuffer[OTA_BUFFER_SIZE];
 
 
 void initializeOTAServer() {
 	if (OTA_ENABLED) {
-		otaServer.begin();
-		REMOTE_LOG_INFO("OTA server listening on port:", OTA_SERVER_PORT);
+		// OTA is now integrated into HTTP server on port 80
+		// This standalone server is no longer used
+		REMOTE_LOG_INFO("OTA functionality integrated into HTTP server (port 80)");
 		REMOTE_LOG_WARN("OTA enabled - Change default credentials in config.h!");
-	}
-}
-
-void handleOTAConnections() {
-	if (!OTA_ENABLED) return;
-
-	EthernetClient client = otaServer.accept();
-	if (client) {
-		REMOTE_LOG_DEBUG("OTA client connected");
-		totalOTAAttempts++;
-
-		// Set timeout for OTA operations
-		client.setTimeout(5000);
-
-		// Read HTTP request
-		String request = "";
-		unsigned long startTime = millis();
-
-		while (client.connected() && (millis() - startTime) < 10000) {
-			if (client.available()) {
-				String line = client.readStringUntil('\n');
-				line.trim();
-
-				if (line.length() == 0) {
-					// Empty line indicates end of headers
-					break;
-				}
-
-				if (request.length() == 0) {
-					request = line; // First line is the request
-				}
-
-				// Check for Authorization header
-				if (line.startsWith("Authorization: ")) {
-					if (!verifyOTACredentials(line)) {
-						sendOTAResponse(client, 401, "Unauthorized");
-						client.stop();
-						REMOTE_LOG_WARN("OTA: Unauthorized access attempt");
-						return;
-					}
-				}
-			}
-		}
-		
-		// Parse request
-		if (request.startsWith("GET / ") || request.startsWith("GET /upload ")) {
-			sendUploadPage(client);
-		} else if (request.startsWith("POST /upload ")) {
-			handleOTAUpload(client);
-		} else if (request.startsWith("GET /status ")) {
-			String status = getOTAStatus();
-			sendOTAResponse(client, 200, status);
-		} else {
-			sendOTAResponse(client, 404, "Not Found");
-		}
-
-		client.stop();
 	}
 }
 
 bool verifyOTACredentials(const String& authHeader) {
 	// Extract base64 encoded credentials
-	int spaceIndex = authHeader.indexOf(' ');
-	if (spaceIndex == -1) return false;
+	// Format: "Authorization: Basic YWRtaW46dXBkYXRlMTIz"
+	int basicIndex = authHeader.indexOf("Basic ");
+	if (basicIndex == -1) {
+		REMOTE_LOG_DEBUG("Auth header format invalid - 'Basic ' not found");
+		return false;
+	}
 
-	String credentials = authHeader.substring(spaceIndex + 1);
+	String credentials = authHeader.substring(basicIndex + 6); // Skip "Basic "
+	credentials.trim(); // Remove any trailing whitespace
 
 	// Create expected credentials
 	String expected = String(OTA_USERNAME) + ":" + String(OTA_PASSWORD);
 	String expectedEncoded = base64::encode(expected);
+
+	REMOTE_LOG_DEBUG(("Expected credentials: " + expected).c_str());
+	REMOTE_LOG_DEBUG(("Expected encoded: " + expectedEncoded).c_str());
+	REMOTE_LOG_DEBUG(("Received encoded: " + credentials).c_str());
 
 	return credentials.equals(expectedEncoded);
 }
@@ -186,76 +122,115 @@ void handleOTAUpload(EthernetClient& client) {
 	otaStartTime = millis();
 	otaBytesReceived = 0;
 
-	// Read the multipart form data
-	// This is a simplified implementation - in production, you'd want proper multipart parsing
-
-	// Skip headers until we find the file data
+	// Skip HTTP headers to find the firmware data
 	String line;
-	bool foundBoundary = false;
-
+	String contentLengthStr = "";
+	bool foundContentLength = false;
+	
+	// Read headers
 	while (client.connected() && client.available()) {
 		line = client.readStringUntil('\n');
-		if (line.indexOf("Content-Type: application") >= 0) {
-			foundBoundary = true;
-			client.readStringUntil('\n'); // Skip empty line
+		line.trim();
+		
+		if (line.startsWith("Content-Length: ")) {
+			contentLengthStr = line.substring(16);
+			foundContentLength = true;
+		}
+		
+		if (line.length() == 0) {
+			// Empty line indicates end of headers
 			break;
 		}
 	}
 
-	if (!foundBoundary) {
-		sendOTAResponse(client, 400, "Invalid upload format");
+	// Skip multipart boundary and headers
+	bool foundBinaryData = false;
+	while (client.connected() && client.available() && !foundBinaryData) {
+		line = client.readStringUntil('\n');
+		line.trim();
+		
+		if (line.indexOf("Content-Type: application/octet-stream") >= 0 || 
+		    line.indexOf("filename=") >= 0) {
+			// Skip one more line (empty line after content-type)
+			client.readStringUntil('\n');
+			foundBinaryData = true;
+			break;
+		}
+	}
+
+	if (!foundBinaryData) {
+		sendOTAResponse(client, 400, "Invalid firmware upload format");
 		resetOTAState();
 		return;
 	}
 
-	// Read firmware data
+	// Start the updater (RP2040 needs size parameter)
+	if (!Update.begin(OTA_MAX_FILE_SIZE)) {
+		sendOTAResponse(client, 500, "Failed to start firmware update");
+		REMOTE_LOG_ERROR("OTA: Failed to start updater");
+		resetOTAState();
+		return;
+	}
+
+	REMOTE_LOG_INFO("OTA: Updater started, receiving firmware data...");
+
+	// Read and write firmware data
 	unsigned long timeout = millis() + OTA_TIMEOUT;
-
-	while (client.connected() && client.available() && millis() < timeout) {
-		size_t bytesRead = client.readBytes(otaBuffer, OTA_BUFFER_SIZE);
-
-		if (bytesRead > 0) {
-			otaBytesReceived += bytesRead;
-
-			// Check size limit
-			if (otaBytesReceived > OTA_MAX_FILE_SIZE) {
-				sendOTAResponse(client, 413, "Firmware file too large");
-				REMOTE_LOG_ERROR("OTA: File too large:", otaBytesReceived);
-				resetOTAState();
-				return;
-			}
-
-			// Write data to flash buffer
-			for (size_t i = 0; i < bytesRead; i++) {
-				if (!addToFlashBuffer(otaBuffer[i])) {
+	uint8_t buffer[OTA_BUFFER_SIZE];
+	
+	while (client.connected() && millis() < timeout) {
+		if (client.available()) {
+			size_t bytesRead = client.readBytes(buffer, sizeof(buffer));
+			
+			if (bytesRead > 0) {
+				otaBytesReceived += bytesRead;
+				
+				// Check size limit
+				if (otaBytesReceived > OTA_MAX_FILE_SIZE) {
+					Update.end();
+					sendOTAResponse(client, 413, "Firmware file too large");
+					REMOTE_LOG_ERROR("OTA: File too large:", otaBytesReceived);
+					resetOTAState();
+					return;
+				}
+				
+				// Write to updater
+				size_t written = Update.write(buffer, bytesRead);
+				if (written != bytesRead) {
+					Update.end();
 					sendOTAResponse(client, 500, "Flash write error");
 					REMOTE_LOG_ERROR("OTA: Flash write failed");
 					resetOTAState();
 					return;
 				}
+				
+				REMOTE_LOG_DEBUG("OTA: Written bytes:", otaBytesReceived);
 			}
-
-			REMOTE_LOG_DEBUG("OTA: Received bytes", otaBytesReceived);
+		} else {
+			delay(1);
 		}
-
-		if (!client.available()) {
-			delay(10); // Small delay to allow more data to arrive
+		
+		// Check if we've likely received all data (simple heuristic)
+		if (!client.available() && otaBytesReceived > 100000) {
+			delay(100); // Give a bit more time
+			if (!client.available()) {
+				break; // Assume we're done
+			}
 		}
 	}
 
 	if (millis() >= timeout) {
+		Update.end();
 		sendOTAResponse(client, 500, "Upload timeout");
 		REMOTE_LOG_ERROR("OTA: Upload timeout");
 		resetOTAState();
 		return;
 	}
 
-	// Complete flash writing
-	otaState = OTA_FLASHING;
-
-	if (!flushFlashBuffer()) {
-		sendOTAResponse(client, 500, "Flash finalization failed");
-		REMOTE_LOG_ERROR("OTA: Flash finalization failed");
+	// Finalize the update
+	if (!Update.end(true)) {
+		sendOTAResponse(client, 500, "Failed to finalize firmware update");
+		REMOTE_LOG_ERROR("OTA: Failed to finalize update");
 		resetOTAState();
 		return;
 	}
@@ -266,14 +241,13 @@ void handleOTAUpload(EthernetClient& client) {
 
 	REMOTE_LOG_INFO("OTA: Upload completed successfully - bytes written:", otaBytesReceived);
 
-	sendOTAResponse(client, 200, "Upload successful! Device will reboot in 5 seconds to apply new firmware.");
-
-	// Schedule reboot to boot from new firmware
-	delay(5000); // Give time for response to be sent
+	sendOTAResponse(client, 200, "Upload successful! Device will reboot in 3 seconds to apply new firmware.");
+	
+	delay(3000); // Give time for response to be sent
 	REMOTE_LOG_INFO("OTA: Rebooting to apply firmware...");
-
-	// Reboot to bootloader which should detect new firmware
-	reset_usb_boot(0, 0);
+	
+	// Proper reboot for RP2040
+	rp2040.reboot();
 }
 
 String getOTAStatus() {
@@ -300,59 +274,11 @@ String getOTAStatus() {
 	return status;
 }
 
-bool writeFlashSector(uint32_t offset, const uint8_t* data) {
-	// Disable interrupts during flash operation
-	uint32_t ints = save_and_disable_interrupts();
-
-	// Erase the sector first
-	flash_range_erase(offset, FLASH_SECTOR_SIZE);
-
-	// Write the data
-	flash_range_program(offset, data, FLASH_SECTOR_SIZE);
-
-	// Re-enable interrupts
-	restore_interrupts(ints);
-
-	return true;
-}
-
-bool addToFlashBuffer(uint8_t byte) {
-	if (flashBufferPos >= FLASH_SECTOR_SIZE) {
-		// Buffer full, write to flash
-		if (!writeFlashSector(FLASH_TARGET_OFFSET + flashWriteAddress, flashBuffer)) {
-			return false;
-		}
-		flashWriteAddress += FLASH_SECTOR_SIZE;
-		flashBufferPos = 0;
-		memset(flashBuffer, 0xFF, FLASH_SECTOR_SIZE); // Fill with 0xFF (erased state)
-	}
-
-	flashBuffer[flashBufferPos++] = byte;
-	return true;
-}
-
-bool flushFlashBuffer() {
-	if (flashBufferPos > 0) {
-		// Pad buffer with 0xFF to complete the sector
-		while (flashBufferPos < FLASH_SECTOR_SIZE) {
-			flashBuffer[flashBufferPos++] = 0xFF;
-		}
-
-		if (!writeFlashSector(FLASH_TARGET_OFFSET + flashWriteAddress, flashBuffer)) {
-			return false;
-		}
-	}
-	return true;
-}
-
 void resetOTAState() {
 	otaState = OTA_IDLE;
 	otaStartTime = 0;
 	otaBytesReceived = 0;
 	otaTotalBytes = 0;
-	flashBufferPos = 0;
-	flashWriteAddress = 0;
-	memset(flashBuffer, 0xFF, FLASH_SECTOR_SIZE);
 }
 
 // Statistics functions
