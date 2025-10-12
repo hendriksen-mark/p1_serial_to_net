@@ -16,15 +16,6 @@ unsigned long successfulOTAUpdates = 0;
 unsigned long lastOTAUpdate = 0;
 
 
-void initializeOTAServer() {
-	if (OTA_ENABLED) {
-		// OTA is now integrated into HTTP server on port 80
-		// This standalone server is no longer used
-		REMOTE_LOG_INFO("OTA functionality integrated into HTTP server (port 80)");
-		REMOTE_LOG_WARN("OTA enabled - Change default credentials in config.h!");
-	}
-}
-
 bool verifyOTACredentials(const String& authHeader) {
 	// Extract base64 encoded credentials
 	// Format: "Authorization: Basic YWRtaW46dXBkYXRlMTIz"
@@ -68,53 +59,6 @@ void sendOTAResponse(EthernetClient& client, int statusCode, const String& messa
 	client.println(message);
 }
 
-void sendUploadPage(EthernetClient& client) {
-	client.println("HTTP/1.1 200 OK");
-	client.println("Content-Type: text/html");
-	client.println("Connection: close");
-	client.println();
-
-	// Simple HTML upload form
-	client.println("<!DOCTYPE html>");
-	client.println("<html><head><title>P1 Bridge OTA Update</title>");
-	client.println("<style>");
-	client.println("body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }");
-	client.println(".container { background: #f5f5f5; padding: 20px; border-radius: 10px; }");
-	client.println("input[type=file] { margin: 10px 0; }");
-	client.println("input[type=submit] { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }");
-	client.println("input[type=submit]:hover { background: #005a87; }");
-	client.println(".warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 5px; margin: 10px 0; }");
-	client.println("</style></head><body>");
-
-	client.println("<div class='container'>");
-	client.println("<h1>P1 Serial-to-Network Bridge</h1>");
-	client.println("<h2>Firmware Update</h2>");
-
-	client.println("<div class='warning'>");
-	client.println("<strong>⚠️ WARNING:</strong> Only upload firmware files (.uf2) specifically built for this device. ");
-	client.println("Uploading incorrect firmware may brick the device!");
-	client.println("</div>");
-
-	client.println("<form method='POST' action='/upload' enctype='multipart/form-data'>");
-	client.println("<p>Select firmware file (.uf2):</p>");
-	client.println("<input type='file' name='firmware' accept='.uf2' required>");
-	client.println("<br><br>");
-	client.println("<input type='submit' value='Upload Firmware'>");
-	client.println("</form>");
-
-	// Status information
-	client.println("<h3>Current Status</h3>");
-	client.println("<p>Uptime: " + String(millis() / 1000) + " seconds</p>");
-	client.println("<p>Total OTA attempts: " + String(totalOTAAttempts) + "</p>");
-	client.println("<p>Successful updates: " + String(successfulOTAUpdates) + "</p>");
-	if (lastOTAUpdate > 0) {
-		client.println("<p>Last update: " + String((millis() - lastOTAUpdate) / 1000) + " seconds ago</p>");
-	}
-
-	client.println("<p><a href='/status'>Check Status</a> | <a href='/'>Refresh</a></p>");
-	client.println("</div></body></html>");
-}
-
 void handleOTAUpload(EthernetClient& client) {
 	REMOTE_LOG_INFO("OTA: Starting firmware upload");
 
@@ -122,99 +66,249 @@ void handleOTAUpload(EthernetClient& client) {
 	otaStartTime = millis();
 	otaBytesReceived = 0;
 
-	// Skip HTTP headers to find the firmware data
+	// Read and parse HTTP headers first
 	String line;
 	String contentLengthStr = "";
+	String boundary = "";
 	bool foundContentLength = false;
 	
-	// Read headers
+	REMOTE_LOG_DEBUG("OTA: Reading HTTP headers...");
+	
+	// Read HTTP headers until empty line
 	while (client.connected() && client.available()) {
 		line = client.readStringUntil('\n');
 		line.trim();
 		
+		REMOTE_LOG_DEBUG("OTA: Header:", line.c_str());
+		
+		// Check if this line looks like a multipart boundary (starts with ------) 
+		// This can happen when boundary appears right after HTTP headers
+		if (line.startsWith("------") && boundary.length() == 0) {
+			boundary = line.substring(2); // Remove the "--" prefix
+			REMOTE_LOG_DEBUG("OTA: Found boundary in header section:", boundary.c_str());
+			// Continue reading to find the actual end of headers
+			continue;
+		}
+		
 		if (line.startsWith("Content-Length: ")) {
 			contentLengthStr = line.substring(16);
 			foundContentLength = true;
+			REMOTE_LOG_DEBUG("OTA: Content-Length:", contentLengthStr.c_str());
+		}
+		
+		if (line.startsWith("Content-Type:") && line.indexOf("multipart/form-data") >= 0) {
+			REMOTE_LOG_DEBUG("OTA: Found multipart content-type:", line.c_str());
+			int boundaryIndex = line.indexOf("boundary=");
+			if (boundaryIndex >= 0) {
+				String headerBoundary = line.substring(boundaryIndex + 9); // Extract boundary after "boundary="
+				headerBoundary.trim(); // Remove any whitespace
+				if (boundary.length() == 0) {
+					boundary = headerBoundary;
+				}
+				REMOTE_LOG_DEBUG("OTA: Extracted boundary from header:", boundary.c_str());
+			}
 		}
 		
 		if (line.length() == 0) {
-			// Empty line indicates end of headers
+			// Empty line indicates end of HTTP headers
+			REMOTE_LOG_DEBUG("OTA: End of HTTP headers reached");
 			break;
 		}
 	}
 
-	// Skip multipart boundary and headers
-	bool foundBinaryData = false;
-	while (client.connected() && client.available() && !foundBinaryData) {
+	// If no boundary found in headers, try to detect from first line of body
+	if (boundary.length() == 0 && client.available()) {
 		line = client.readStringUntil('\n');
 		line.trim();
+		REMOTE_LOG_DEBUG("OTA: First body line:", line.c_str());
 		
-		if (line.indexOf("Content-Type: application/octet-stream") >= 0 || 
-		    line.indexOf("filename=") >= 0) {
-			// Skip one more line (empty line after content-type)
-			client.readStringUntil('\n');
-			foundBinaryData = true;
-			break;
+		// Check if this line is a boundary (starts with --)
+		if (line.startsWith("--") && line.length() > 2) {
+			boundary = line.substring(2); // Remove the "--" prefix
+			REMOTE_LOG_DEBUG("OTA: Extracted boundary from body:", boundary.c_str());
 		}
 	}
 
-	if (!foundBinaryData) {
-		sendOTAResponse(client, 400, "Invalid firmware upload format");
+	if (boundary.length() == 0) {
+		REMOTE_LOG_ERROR("OTA: No multipart boundary found in headers or body");
+		sendOTAResponse(client, 400, "Invalid multipart upload - no boundary");
 		resetOTAState();
 		return;
 	}
 
-	// Start the updater (RP2040 needs size parameter)
-	if (!Update.begin(OTA_MAX_FILE_SIZE)) {
-		sendOTAResponse(client, 500, "Failed to start firmware update");
-		REMOTE_LOG_ERROR("OTA: Failed to start updater");
+	// Since we already found the boundary during header parsing and consumed
+	// the multipart headers (Content-Disposition, Content-Type), we can
+	// proceed directly to reading the file content
+	bool foundFileStart = true;
+	
+	REMOTE_LOG_DEBUG("OTA: Multipart headers already parsed, ready for file content");
+
+	if (!foundFileStart) {
+		REMOTE_LOG_ERROR("OTA: Could not find file content in multipart data");
+		sendOTAResponse(client, 400, "Invalid firmware upload format - no file content found");
 		resetOTAState();
 		return;
 	}
 
-	REMOTE_LOG_INFO("OTA: Updater started, receiving firmware data...");
+	// Start the updater (RP2040 - try different approaches)
+	REMOTE_LOG_INFO("OTA: Starting updater...");
+	
+	// Add diagnostic information about available space
+	REMOTE_LOG_DEBUG("OTA: Flash layout - Max sketch size: 1568768 bytes");
+	
+	// For RP2040, try different size approaches
+	bool updateStarted = false;
+	
+	// Try different approaches for RP2040 Update.begin()
+	// With our current setup: 1.5MB sketch space, 512KB LittleFS
+	// Current firmware is ~177KB, so we have plenty of space
+	
+	// RP2040 specific: Try with U_FLASH parameter explicitly
+	// Try 1: Auto-detect with explicit flash parameter
+	if (Update.begin(0, U_FLASH)) {
+		updateStarted = true;
+		REMOTE_LOG_DEBUG("OTA: Auto-detect with U_FLASH successful");
+	} else {
+		int error1 = Update.getError();
+		REMOTE_LOG_DEBUG("OTA: Auto-detect U_FLASH failed with error:", String(error1).c_str());
+		
+		// Try 2: Default size with U_FLASH
+		if (Update.begin(1024 * 1024, U_FLASH)) {
+			updateStarted = true;
+			REMOTE_LOG_DEBUG("OTA: 1MB with U_FLASH successful");
+		} else {
+			int error2 = Update.getError();
+			REMOTE_LOG_DEBUG("OTA: 1MB U_FLASH failed with error:", String(error2).c_str());
+			
+			// Try 3: Specific small size that should definitely fit
+			size_t smallSize = 512 * 1024; // 512KB
+			if (Update.begin(smallSize, U_FLASH)) {
+				updateStarted = true;
+				REMOTE_LOG_DEBUG("OTA: 512KB with U_FLASH successful");
+			} else {
+				int error3 = Update.getError();
+				REMOTE_LOG_DEBUG("OTA: 512KB U_FLASH failed with error:", String(error3).c_str());
+				
+				// Try 4: Try with exact available sketch space
+				size_t maxSketchSize = 1568768 - 200000; // Leave some margin
+				if (Update.begin(maxSketchSize, U_FLASH)) {
+					updateStarted = true;
+					REMOTE_LOG_DEBUG("OTA: Max sketch space successful");
+				} else {
+					int error4 = Update.getError();
+					String errorMsg = "Update.begin() failed with all attempts. Errors: auto-U_FLASH(" + String(error1) + "), 1MB-U_FLASH(" + String(error2) + "), 512KB-U_FLASH(" + String(error3) + "), max-sketch(" + String(error4) + "). This may indicate a deeper RP2040 OTA configuration issue.";
+					REMOTE_LOG_ERROR("OTA:", errorMsg.c_str());
+					sendOTAResponse(client, 500, "Failed to start firmware update. RP2040 OTA initialization failed.");
+					resetOTAState();
+					return;
+				}
+			}
+		}
+	}
+	
+	if (!updateStarted) {
+		REMOTE_LOG_ERROR("OTA: Could not start updater with any size configuration");
+		sendOTAResponse(client, 500, "Failed to initialize firmware updater");
+		resetOTAState();
+		return;
+	}
 
-	// Read and write firmware data
+	REMOTE_LOG_INFO("OTA: Updater started successfully, receiving firmware data...");
+
+	// Read and write firmware data - handle binary properly
 	unsigned long timeout = millis() + OTA_TIMEOUT;
 	uint8_t buffer[OTA_BUFFER_SIZE];
+	String endBoundary = "\r\n--" + boundary;
+	uint8_t boundaryBuffer[64]; // Buffer to check for boundary
+	int boundaryBufferPos = 0;
+	bool foundEndBoundary = false;
 	
-	while (client.connected() && millis() < timeout) {
+	REMOTE_LOG_DEBUG("OTA: Starting binary firmware read, looking for end boundary");
+	
+	while (client.connected() && millis() < timeout && !foundEndBoundary) {
 		if (client.available()) {
-			size_t bytesRead = client.readBytes(buffer, sizeof(buffer));
+			size_t bytesRead = client.readBytes(buffer, min(sizeof(buffer), (size_t)client.available()));
 			
 			if (bytesRead > 0) {
-				otaBytesReceived += bytesRead;
-				
-				// Check size limit
-				if (otaBytesReceived > OTA_MAX_FILE_SIZE) {
-					Update.end();
-					sendOTAResponse(client, 413, "Firmware file too large");
-					REMOTE_LOG_ERROR("OTA: File too large:", otaBytesReceived);
-					resetOTAState();
-					return;
+				// Check each byte for potential boundary
+				for (size_t i = 0; i < bytesRead && !foundEndBoundary; i++) {
+					uint8_t currentByte = buffer[i];
+					
+					// Add byte to boundary detection buffer
+					boundaryBuffer[boundaryBufferPos] = currentByte;
+					boundaryBufferPos++;
+					
+					// Check if we have a complete boundary
+					if (boundaryBufferPos >= endBoundary.length()) {
+						String boundaryCheck = "";
+						for (int j = 0; j < endBoundary.length(); j++) {
+							boundaryCheck += (char)boundaryBuffer[(boundaryBufferPos - endBoundary.length() + j) % 64];
+						}
+						
+						if (boundaryCheck.equals(endBoundary)) {
+							// Found end boundary - don't write the boundary bytes
+							size_t writeBytes = i - endBoundary.length() + 1;
+							if (writeBytes > 0) {
+								size_t written = Update.write(buffer, writeBytes);
+								if (written != writeBytes) {
+									Update.end();
+									sendOTAResponse(client, 500, "Flash write error at boundary");
+									REMOTE_LOG_ERROR("OTA: Flash write failed at boundary");
+									resetOTAState();
+									return;
+								}
+								otaBytesReceived += written;
+							}
+							foundEndBoundary = true;
+							REMOTE_LOG_DEBUG("OTA: Found end boundary, firmware complete");
+							break;
+						}
+					}
+					
+					// Keep boundary buffer circular
+					if (boundaryBufferPos >= 64) {
+						boundaryBufferPos = 0;
+					}
 				}
 				
-				// Write to updater
-				size_t written = Update.write(buffer, bytesRead);
-				if (written != bytesRead) {
-					Update.end();
-					sendOTAResponse(client, 500, "Flash write error");
-					REMOTE_LOG_ERROR("OTA: Flash write failed");
-					resetOTAState();
-					return;
+				// If no boundary found in this chunk, write all the data
+				if (!foundEndBoundary) {
+					otaBytesReceived += bytesRead;
+					
+					// Check size limit
+					if (otaBytesReceived > OTA_MAX_FILE_SIZE) {
+						Update.end();
+						sendOTAResponse(client, 413, "Firmware file too large");
+						REMOTE_LOG_ERROR("OTA: File too large:", otaBytesReceived);
+						resetOTAState();
+						return;
+					}
+					
+					// Write to updater
+					size_t written = Update.write(buffer, bytesRead);
+					if (written != bytesRead) {
+						Update.end();
+						sendOTAResponse(client, 500, "Flash write error");
+						REMOTE_LOG_ERROR("OTA: Flash write failed");
+						resetOTAState();
+						return;
+					}
+					
+					if (otaBytesReceived % 10240 == 0) { // Log every 10KB
+						REMOTE_LOG_DEBUG("OTA: Written bytes:", otaBytesReceived);
+					}
 				}
-				
-				REMOTE_LOG_DEBUG("OTA: Written bytes:", otaBytesReceived);
 			}
 		} else {
-			delay(1);
+			delay(10);
 		}
 		
-		// Check if we've likely received all data (simple heuristic)
-		if (!client.available() && otaBytesReceived > 100000) {
-			delay(100); // Give a bit more time
+		// Simple heuristic for completion without boundary
+		if (!client.available() && otaBytesReceived > 50000) {
+			delay(100); // Give more time for larger files
 			if (!client.available()) {
-				break; // Assume we're done
+				REMOTE_LOG_DEBUG("OTA: No more data available, assuming upload complete");
+				break;
 			}
 		}
 	}
@@ -227,10 +321,22 @@ void handleOTAUpload(EthernetClient& client) {
 		return;
 	}
 
+	REMOTE_LOG_INFO("OTA: Finalizing update, total bytes received:", otaBytesReceived);
+	
+	// Check minimum file size (typical RP2040 firmware is at least 50KB)
+	if (otaBytesReceived < 50000) {
+		Update.end();
+		sendOTAResponse(client, 400, "Firmware file too small - likely not a valid RP2040 binary");
+		REMOTE_LOG_ERROR("OTA: File too small (minimum ~50KB expected):", otaBytesReceived);
+		resetOTAState();
+		return;
+	}
+	
 	// Finalize the update
 	if (!Update.end(true)) {
-		sendOTAResponse(client, 500, "Failed to finalize firmware update");
-		REMOTE_LOG_ERROR("OTA: Failed to finalize update");
+		String error = "Update.end() failed. Error: " + String(Update.getError());
+		REMOTE_LOG_ERROR("OTA:", error.c_str());
+		sendOTAResponse(client, 500, "Failed to finalize firmware update: " + error);
 		resetOTAState();
 		return;
 	}

@@ -27,11 +27,9 @@ extern unsigned long successfulOTAUpdates;
 extern unsigned long lastOTAUpdate;
 
 // Function declarations
-void initializeOTAServer();
 void handleOTAUpload(EthernetClient& client);
 bool verifyOTACredentials(const String& authHeader);
 void sendOTAResponse(EthernetClient& client, int statusCode, const String& message);
-void sendUploadPage(EthernetClient& client);
 String getOTAStatus();
 void resetOTAState();
 

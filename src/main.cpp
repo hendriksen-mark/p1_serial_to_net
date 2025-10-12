@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Ethernet.h>
+#include <LittleFS.h>
 #include "config.h"
 #include "clients.h"
 #include "p1_handler.h"
@@ -24,6 +25,13 @@ void setup() {
 	}
 
 	REMOTE_LOG_INFO("P1 Serial-to-Network Bridge Starting...");
+
+	// Initialize LittleFS for OTA support
+	if (!LittleFS.begin()) {
+		REMOTE_LOG_ERROR("LittleFS initialization failed - OTA updates may not work");
+	} else {
+		REMOTE_LOG_INFO("LittleFS initialized successfully for OTA support");
+	}
 
 	// Initialize status LED
 	initializeStatusLED();
