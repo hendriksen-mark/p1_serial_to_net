@@ -1,8 +1,6 @@
 #include "ota_server.h"
 #include "custom_log.h"
 #include <base64.h>
-#define DEBUGLOG_DEFAULT_LOG_LEVEL_INFO
-#include <DebugLog.h>
 #include <hardware/flash.h>
 #include <hardware/sync.h>
 #include <pico/bootrom.h>
