@@ -9,6 +9,7 @@
 #include "log_server.h"
 #include "custom_log.h"
 #include "ota_server.h"
+#include "http_info.h"
 
 void setup() {
 	// Initialize serial for debugging
@@ -35,6 +36,9 @@ void setup() {
 
 	// Initialize log server for remote debugging
 	initializeLogServer();
+
+	// Initialize HTTP info server for web interface
+	initializeHTTPInfoServer();
 
 	// Initialize OTA server for firmware updates
 	initializeOTAServer();
@@ -75,6 +79,9 @@ void loop() {
 
 		// Clean up disconnected log clients
 		cleanupLogClients();
+
+		// Handle HTTP info server requests
+		handleHTTPInfoConnections();
 
 		// Handle OTA server connections and requests
 		handleOTAConnections();

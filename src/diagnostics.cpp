@@ -3,6 +3,7 @@
 #include "p1_handler.h"
 #include "log_server.h"
 #include "ota_server.h"
+#include "http_info.h"
 #include "custom_log.h"
 #include <Ethernet.h>
 
@@ -11,6 +12,7 @@ void printStatus() {
 	REMOTE_LOG_INFO("IP Address:", Ethernet.localIP());
 	REMOTE_LOG_INFO("P1 Server Port:", SERVER_PORT);
 	REMOTE_LOG_INFO("Log Server Port:", LOG_SERVER_PORT);
+	REMOTE_LOG_INFO("HTTP Info Port:", HTTP_INFO_PORT);
 	REMOTE_LOG_INFO("OTA Server Port:", OTA_SERVER_PORT);
 	REMOTE_LOG_INFO("Connected P1 Clients:");
 	int connectedCount = getConnectedClientCount();
@@ -31,6 +33,7 @@ void printStatus() {
 	REMOTE_LOG_INFO("P1 Bytes Sent:", totalBytesSent);
 	REMOTE_LOG_INFO("Log Messages Sent:", totalLogMessages);
 	REMOTE_LOG_INFO("Log Bytes Sent:", totalLogBytesSent);
+	REMOTE_LOG_INFO("HTTP Requests:", getHTTPRequestCount());
 	REMOTE_LOG_INFO("OTA Requests:", getOTARequestCount());
 	REMOTE_LOG_INFO("OTA Updates:", getOTAUpdateCount());
 	REMOTE_LOG_INFO("Last OTA:", getLastOTATimestamp());

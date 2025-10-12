@@ -82,6 +82,11 @@
 #define OTA_BUFFER_SIZE     512             // Upload buffer size
 #define OTA_TIMEOUT         300000          // 5 minutes timeout for uploads
 
+// HTTP Info Server Configuration  
+#define HTTP_INFO_ENABLED   true            // Enable HTTP info page
+#define HTTP_INFO_PORT      80              // Standard HTTP port
+#define HTTP_INFO_TITLE     "P1 Serial-to-Network Bridge" // Page title
+
 // Buffer Configuration
 #define P1_BUFFER_SIZE  2048   // Maximum P1 message size
 #define ETHERNET_BUFFER_SIZE 1024
