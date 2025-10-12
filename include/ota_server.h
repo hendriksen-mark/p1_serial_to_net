@@ -7,11 +7,11 @@
 
 // OTA server state
 enum OTAState {
-    OTA_IDLE,
-    OTA_RECEIVING,
-    OTA_FLASHING,
-    OTA_SUCCESS,
-    OTA_ERROR
+	OTA_IDLE,
+	OTA_RECEIVING,
+	OTA_FLASHING,
+	OTA_SUCCESS,
+	OTA_ERROR
 };
 
 // OTA server management

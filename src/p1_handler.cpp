@@ -67,7 +67,7 @@ void readP1Data() {
 				sendToAllClients(p1Buffer);
 				totalP1Messages++;
 				totalBytesReceived += p1Buffer.length();
-				
+
 				// Mark P1 data received for LED indication
 				lastP1DataReceived = millis();
 
